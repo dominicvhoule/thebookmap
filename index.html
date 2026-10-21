@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>BookMap</title>
+<meta name="description" content="See the world one book at a time. Log the books you read and see where each one takes place on a world map.">
+<meta name="theme-color" content="#17362F">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 34 30'%3E%3Cpath d='M2 5c5-2 10-2 15 1v22c-5-3-10-3-15-1Z' fill='%2317362F'/%3E%3Cpath d='M32 5c-5-2-10-2-15 1v22c5-3 10-3 15-1Z' fill='%23C9971C'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Libre+Bodoni:ital,wght@0,500;0,700;1,500;1,700&family=Literata:opsz,wght@7..72,400;7..72,500;7..72,600&family=Spline+Sans+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+<link rel="stylesheet" href="styles.css?v=202610210400">
+</head>
+<body>
+<header class="mast">
+  <a class="brand" href="#/">
+    <svg width="34" height="30" viewBox="0 0 34 30" aria-hidden="true"><path d="M2 5c5-2 10-2 15 1v22c-5-3-10-3-15-1Z" fill="#EEF0EB"/><path d="M32 5c-5-2-10-2-15 1v22c5-3 10-3 15-1Z" fill="#C9971C"/><circle cx="24.5" cy="13" r="3.4" fill="#17362F"/><path d="M24.5 16.4v5" stroke="#17362F" stroke-width="1.6"/></svg>
+    <span><b>Book<em>Map</em></b><i>See the world one book at a time</i></span>
+  </a>
+  <nav class="nav" aria-label="Main">
+    <a href="#/" data-nav="home">Map</a>
+    <a href="#/explore" data-nav="explore">People</a>
+    <a href="#/log" data-nav="log"><span class="lg">Log a book</span><span class="sm">Log</span></a>
+    <a href="#/import" data-nav="import">Goodreads</a>
+  </nav>
+  <a href="#/account" data-nav="account" class="acct" id="acct-link">Sign in</a>
+</header>
+
+<main class="app">
+  <section class="mapwrap" aria-label="Map">
+    <div id="map" role="region" aria-label="World map of where your books are set"></div>
+    <div class="mapbar">
+      <div class="whose"><small id="whose-k">Loading</small><h2 id="whose-h">Your map</h2></div>
+      <div class="mapside"><div class="viewtog" role="group" aria-label="Show as"><button type="button" data-v="map" aria-pressed="true">Map</button><button type="button" data-v="list" aria-pressed="false">List</button><button type="button" data-v="stats" aria-pressed="false">Stats</button></div>
+      <div class="zoom"><button id="zin" aria-label="Zoom in">+</button><button id="zout" aria-label="Zoom out">−</button><button id="zfit" aria-label="Fit all pins">⤢</button></div></div>
+    </div>
+    <div class="clist" id="clist" hidden></div>
+    <div class="pickhint" id="pickhint" hidden>Tap the map where the book takes place</div>
+    <div class="legend"><span><i></i>Named setting</span><span><i class="a"></i>Approximate or invented town</span><span><i class="c"></i>Country read</span></div>
+    <div class="detail" id="detail" hidden></div>
+  </section>
+
+  <aside class="rail">
+    <!-- map view: profile + reading log -->
+    <div class="panel" id="view-map">
+      <div class="profile">
+        <div class="who"><div class="avatar" id="av"></div><div style="min-width:0"><h1 id="uname"></h1><p id="ubio"></p></div></div>
+        <div class="stats"><div><b id="s-books">–</b><span>Books</span></div><div><b id="s-authors">–</b><span>Authors</span></div><div><b id="s-ctry">–</b><span>Countries</span></div><div><b id="s-cont">–</b><span>Continents</span></div></div>
+        <p class="overlap" id="overlap" hidden></p>
+        <div class="cta" id="cta"></div>
+      </div>
+      <div class="listhead"><h4>Reading log</h4><input id="q" type="search" placeholder="Filter" aria-label="Filter books, authors or places"></div>
+      <ul class="films" id="films"><li class="empty">Loading books…</li></ul>
+    </div>
+    <div class="panel" id="view-explore" hidden><div class="pad" id="explore"></div></div>
+    <div class="panel" id="view-log" hidden><div class="pad" id="log"></div></div>
+    <div class="panel" id="view-import" hidden><div class="pad" id="import"></div></div>
+    <div class="panel" id="view-account" hidden><div class="pad" id="account"></div></div>
+    <div class="panel" id="view-country" hidden><div class="pad" id="country"></div></div>
+    <div class="panel" id="view-poster" hidden><div class="pad" id="poster"></div></div>
+    <p class="credit">Book data and covers from <a href="https://openlibrary.org/" target="_blank" rel="noopener">Open Library</a> and Goodreads; settings from <a href="https://www.wikidata.org/" target="_blank" rel="noopener">Wikidata</a>, Wikipedia and Claude. Not affiliated with Goodreads.</p>
+  </aside>
+</main>
+<div class="toast" id="toast" hidden></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/topojson/3.0.2/topojson.min.js"></script>
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="config.js?v=202610210400"></script>
+<script src="js/featured.js?v=202610210400"></script>
+<script src="js/data.js?v=202610210400"></script>
+<script src="js/wikiplot.js?v=202610210400"></script>
+<script src="js/poster.js?v=202610210400"></script>
+<script src="js/app.js?v=202610210400"></script>
+</body>
+</html>
