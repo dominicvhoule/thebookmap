@@ -962,7 +962,7 @@ async function syncGoodreads({quiet=false, full=false, progress=null} = {}){
   const say = s => progress && progress(s);
   try{
     say("Reading your Goodreads shelf…");
-    const list = await fetchGoodreadsShelf(link.id, full ? 6 : 1, (pg, n)=>say(`Reading your Goodreads shelf… page ${pg} (${n} books)`));
+    const list = await fetchGoodreadsShelf(link.id, full ? 60 : 1, (pg, n)=>say(`Reading your Goodreads shelf… page ${pg} (${n} books)`));
     if(!list.length && full){ say("Your Read shelf on Goodreads is empty."); }
     if(list.name && list.name !== link.name){ try{ await setGrLinked({id:link.id, name:list.name}); }catch(e){} }
     const haveGr = new Set(myBooks.map(b=>b.gr).filter(Boolean)), have = myKeys();
@@ -1140,8 +1140,8 @@ function renderImport(){
   const profileURL = id => "https://www.goodreads.com/user/show/" + encodeURIComponent(id);
   el.innerHTML = `<h2 class="h">Goodreads</h2>
     <h3 class="step"><span>1</span>Link your Goodreads</h3>
-    <p class="hint">Brings in up to 600 books from your Read shelf, then new ones automatically. No password needed.</p>
-    <p class="notice" style="margin:0">Linking only works for a <b>public</b> Goodreads profile and loads at most <b>600 books</b>. If your profile is private or you've read more than 600 books, use the export in step 2 to bring in everything.</p>
+    <p class="hint">Brings in up to 6,000 books from your Read shelf, then new ones automatically. No password needed.</p>
+    <p class="notice" style="margin:0">Linking only works for a <b>public</b> Goodreads profile and loads at most <b>6,000 books</b>. If your profile is private or you've read more than 6,000 books, use the export in step 2 to bring in everything.</p>
     ${sb ? `
     ${link && !grEditing ? `
     <div class="linked">
@@ -1153,14 +1153,14 @@ function renderImport(){
     <form class="search" id="grf"><label for="gru" class="sr">Goodreads profile link or username</label><input id="gru" autocomplete="off" spellcheck="false" placeholder="Your Goodreads profile link or username"><button class="btn" type="submit">Connect</button>${grEditing ? `<button class="btn ghost" type="button" id="grcancel">Cancel</button>` : ""}</form>
     <p class="hint" id="grs">${grEditing && link ? `Currently linked to ${esc(link.name || link.id)}. Books already on your map stay there.` : "Find it on Goodreads under My Profile, then copy the page's link. Your profile needs to be public."}</p>`}
     ${rep ? `<div class="box">
-      <p class="ok" style="margin:0"><b>${rep.total} book${rep.total===1?"":"s"}</b> ${rep.total >= 600 ? "loaded (the most linking can bring in)" : "on your Read shelf"}${missing.length ? `, <b>${missing.length}</b> still need${missing.length===1?"s":""} a pin` : ", all on your map"}.</p>
+      <p class="ok" style="margin:0"><b>${rep.total} book${rep.total===1?"":"s"}</b> ${rep.total >= 6000 ? "loaded (the most linking can bring in)" : "on your Read shelf"}${missing.length ? `, <b>${missing.length}</b> still need${missing.length===1?"s":""} a pin` : ", all on your map"}.</p>
       ${missing.length ? `<p class="hint">We couldn't work out where ${missing.length===1 ? "this one takes" : "these take"} place. Tap Place it to pin ${missing.length===1 ? "it" : "each one"} yourself.</p>
       <ul class="results">${missing.slice(0, 200).map((m,i)=>`<li><button data-i="${i}"><span class="th" style="--c:${cloth(m)};${MM.coverURL(m,"S") ? `background-image:url('${esc(MM.coverURL(m,"S"))}')` : ""}"></span><span style="min-width:0"><b>${esc(m.t)}</b><span class="m">${esc(m.a)}</span><span class="m" style="color:var(--rust)"> · Place it →</span></span></button></li>`).join("")}</ul>` : ""}
     </div>` : ""}
     ${!cloud() ? `<p class="notice">${me ? "Books save in this browser for now." : '<a href="#/account">Sign in</a> to keep your books on your account and update them every day.'}</p>` : ""}`
     : `<p class="notice">Goodreads linking isn't switched on for this site yet.</p>`}
-    <h3 class="step"><span>2</span>Private profile or over 600 books? Use your export</h3>
-    <p class="hint">Goodreads can export your whole library as one file, with no limit on how many books. Do this once if your profile is private or your Read shelf has more than 600 books. Linking still adds new ones after that.</p>
+    <h3 class="step"><span>2</span>Private profile or over 6,000 books? Use your export</h3>
+    <p class="hint">Goodreads can export your whole library as one file, with no limit on how many books. Do this once if your profile is private or your Read shelf has more than 6,000 books. Linking still adds new ones after that.</p>
     <ol class="howto">
       <li><a href="https://www.goodreads.com/review/import" target="_blank" rel="noopener">Export your library ↗</a><span>on Goodreads, then Export Library</span></li>
       <li><b>Save the CSV file</b><span>goodreads_library_export.csv</span></li>
