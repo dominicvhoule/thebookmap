@@ -712,7 +712,13 @@ async function originsOf(films){
   const noQid = need.filter(f=>!f.qid && f.ol);
   if(noQid.length){ const q = await MM.qidsForWorks(noQid.map(f=>f.ol)).catch(()=>({})); noQid.forEach(f=>{ if(q[f.ol]) f.qid = q[f.ol]; }); }
   const ac = await MM.authorCountries(need.map(f=>f.qid).filter(Boolean)).catch(()=>({}));
-  need.forEach(f=>{ f.made = [...new Set(((f.qid && ac[f.qid]) || []).map(n=>MM.isoFor(MM.geoName(n))).filter(Boolean))]; });
+  // Books whose Wikidata entry gave no writer: look the writer up by name instead.
+  const noWriter = need.filter(f=>!(f.qid && ac[f.qid] && ac[f.qid].length));
+  const byName = noWriter.length ? await MM.writerCountriesByName(noWriter.map(f=>f.a)).catch(()=>({})) : {};
+  need.forEach(f=>{
+    const names = (f.qid && ac[f.qid] && ac[f.qid].length) ? ac[f.qid] : (byName[String(f.a || "").split(" & ")[0].trim()] || []);
+    f.made = [...new Set(names.map(n=>MM.isoFor(MM.geoName(n))).filter(Boolean))];
+  });
 }
 const madeLine = f => f.made && f.made.length ? "By a writer from " + f.made.slice(0, 2).map(regionName).join(" and ") + (f.made.length > 2 ? " and elsewhere" : "") : "Where the writer is from isn't on record";
 function filmRows(list){
@@ -1526,19 +1532,19 @@ async function route(){
     showMap({name:"Not found", username:name, bio:"No one has this username."}, [], false);
     return;
   }
-  if(a === "explore"){ setNav("explore"); showPanel("explore"); if(!viewing.owner) showFeaturedOrMine(); return renderExplore(); }
-  if(a === "log"){ setNav("log"); showPanel("log"); return renderLog(); }
-  if(a === "import"){ setNav("import"); showPanel("import"); return renderImport(); }
+  if(a === "explore"){ setNav("explore"); showBackdrop(); showPanel("explore"); return renderExplore(); }
+  if(a === "log"){ setNav("log"); showBackdrop(); showPanel("log"); return renderLog(); }
+  if(a === "import"){ setNav("import"); showBackdrop(); showPanel("import"); return renderImport(); }
   if(a === "poster" && !POSTERS){ location.replace("#/"); return; }
   if(a === "poster"){ setNav(""); showPanel("poster"); if(!viewing.owner) showFeaturedOrMine(); return renderPoster(); }
-  if(a === "account"){ if(b === "up" || b === "in") acctTab = b; setNav("account"); showPanel("account"); if(!viewing.owner) showFeaturedOrMine(); return renderAccount(); }
+  if(a === "account"){ if(b === "up" || b === "in") acctTab = b; setNav("account"); showBackdrop(); showPanel("account"); return renderAccount(); }
   setNav("home");
   if(!me && !myBooks.length) return showWelcome();
   showPanel("map"); showFeaturedOrMine();
 }
 // First visit (signed out, no books yet): an invitation to make a map, with Emily's starter shelf to look around.
 function showWelcome(){
-  showMap({name:"TheBookMap", username:"", bio:"", welcome:true}, [], false);
+  showBackdrop();
   showPanel("welcome");
   $("#whose-k").textContent = "Welcome to"; $("#whose-h").textContent = "TheBookMap";
   $("#welcome").innerHTML = `<h2 class="h">See the world one book at a time</h2>
@@ -1547,6 +1553,13 @@ function showWelcome(){
     <p class="hint">Already have an account? <a href="#/account/in">Sign in</a>. MovieMap accounts work here too.</p>
     <h3 class="sub" style="margin-top:22px">Or look around first</h3>
     <div class="list">${starterCard()}</div>`;
+}
+// Behind People, Log a book, Goodreads and the account page: your own map, or the plain world map
+// for a visitor (not whichever map they last looked at).
+function showBackdrop(){
+  if(me || myBooks.length){ if(!viewing.mine) showMine(); return; }
+  if(!(viewing.owner && viewing.owner.welcome)) showMap({name:"TheBookMap", username:"", bio:"", welcome:true}, [], false);
+  $("#whose-k").textContent = "Welcome to"; $("#whose-h").textContent = "TheBookMap";
 }
 function showFeaturedOrMine(){
   if(me || myBooks.length) return showMine();

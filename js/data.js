@@ -284,6 +284,30 @@ MM.authorCountries = async function(qids){
   }
   return out;
 };
+// A writer's countries from their name alone, for books whose Wikidata entry isn't linked. Picks the
+// best-known person with that name (most Wikipedia pages), so namesakes rarely win.
+MM.writerCountriesByName = async function(names){
+  const out = {}, list = [...new Set(names.map(n=>String(n || "").split(" & ")[0].trim()).filter(n=>n && n.length < 80 && !/["\\]/.test(n)))];
+  const need = list.filter(n=>{ const c = lsGet("bm-wname1:" + n, null); if(c){ out[n] = c; return false; } return true; });
+  for(let i=0; i<need.length; i+=40){
+    const part = need.slice(i, i+40);
+    const rows = await sparql(`SELECT ?name ?a ?links ?cLabel WHERE {
+      VALUES ?name { ${part.map(n=>`"${n}"@en`).join(" ")} }
+      { ?a rdfs:label ?name } UNION { ?a skos:altLabel ?name }
+      ?a wdt:P31 wd:Q5 ; wdt:P27 ?c ; wikibase:sitelinks ?links .
+      SERVICE wikibase:label { bd:serviceParam wikibase:language "en". } }`);
+    const best = {};
+    rows.forEach(b=>{
+      const n = b.name.value, a = b.a.value, links = +b.links.value, c = b.cLabel && b.cLabel.value;
+      if(!c || /^Q\d+$/.test(c)) return;
+      const cur = best[n];
+      if(!cur || links > cur.links){ best[n] = {a, links, c:[c]}; }
+      else if(cur.a === a && !cur.c.includes(c)) cur.c.push(c);
+    });
+    part.forEach(n=>{ out[n] = best[n] ? best[n].c : []; if(rows.length || best[n]) lsSet("bm-wname1:" + n, out[n]); });
+  }
+  return out;
+};
 const FALLBACK_NOTE = "No setting on record yet, so this is pinned to the author's country. Move the pin if you know better.";
 MM.fallbackSetting = function(det){
   for(const c of (det && det.authorCountries) || []){
