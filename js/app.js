@@ -466,21 +466,31 @@ function openGroup(g){
 // meanwhile cancels this one.
 let openToken = 0;
 const timeout = (p, ms) => Promise.race([p, new Promise(r=>setTimeout(()=>r(null), ms))]);
+// Resolves with the URL once the image has fully downloaded (null if it fails), so a card can wait
+// for its cover and appear complete instead of showing the plain cloth cover first.
+const loadImg = url => !url ? Promise.resolve(null) : new Promise(res=>{ const im = new Image(); im.onload = ()=>res(im.naturalWidth > 10 ? url : null); im.onerror = ()=>res(null); im.src = url; });
+// Everything a book card shows, fetched before the card appears (each part gives up after a few seconds).
+async function cardParts(b){
+  const cover = (async()=>loadImg(b.coverId ? MM.coverURL(b, "L") : await coverOf(b, "L")))().catch(()=>null);
+  const [url, sum] = await Promise.all([timeout(cover, 5000), timeout(MM.bookSummary(b).catch(()=>""), 5000)]);
+  return {url, sum};
+}
 async function openBook(f, fly){
   const token = ++openToken;
   selected = f; preview = null;
   if(fly) flyTo(f);
   renderPins(); markListSelection();
-  // The card opens straight away; the cover (if it isn't saved yet), the summary and the suggestions
-  // fill in as they arrive, so a slow lookup never holds the card up.
+  // The card waits until its cover and summary have loaded, then appears complete.
+  const {url, sum} = await cardParts(f);
+  if(token !== openToken || selected !== f) return;
   const note = MM.cleanNote(f.n, placeLine(f));
   const mine = viewing.mine;
-  detail.innerHTML = `<div class="top">${coverSlot(f, f.coverId ? MM.coverURL(f, "L") : null)}
+  detail.innerHTML = `<div class="top">${coverSlot(f, url)}
     <div class="stub"><small>${esc(f.y)}</small><h3>${esc(f.t)}</h3><p class="by">${esc(f.a)}</p>${f.s ? `<p class="series">${esc(f.s)}</p>` : ""}<button class="x" aria-label="Close">×</button></div></div>
     <div class="body">
       <div><div class="place">${esc(placeLine(f))}</div><div class="coord">${fmtCoord(f.lat, f.lon)}</div></div>
       ${note ? `<p class="note">${esc(note)}</p>` : ""}
-      <p class="ov" id="d-sum" hidden></p>
+      <p class="ov" id="d-sum"${sum ? "" : " hidden"}>${esc(sum || "")}</p>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">${f.r ? `<span class="stars">${stars(f.r)}</span>` : ""}${f.rv ? '<span class="tag">Reviewed</span>' : ""}${f.rc > 1 ? `<span class="tag">Read ${f.rc} times</span>` : ""}${f.ap ? '<span class="tag ap">Approx. setting</span>' : ""}${f.read ? `<span class="tag muted">Read ${esc(fmtDay(f.read))}</span>` : ""}</div>
       ${mine ? `<div class="cta"><button class="btn ghost small" id="d-move">Move pin</button><button class="btn ghost small" id="d-del">Remove</button></div>` : ""}
       <div class="links"><a class="linkbtn" href="${esc(MM.goodreadsPage(f))}" target="_blank" rel="noopener">Goodreads ↗</a>${f.ol ? `<a class="linkbtn" href="${esc(MM.olPage(f))}" target="_blank" rel="noopener">Open Library ↗</a>` : ""}</div>
@@ -488,11 +498,7 @@ async function openBook(f, fly){
     </div>`;
   detail.hidden = false; detail.scrollTop = 0;
   detail.querySelector(".x").onclick = closeDetail;
-  fillSummary(f, token);
-  if(!f.coverId) coverOf(f, "L").then(url=>{
-    const slot = token === openToken && detail.querySelector(".top .poster");
-    if(slot && url && !slot.querySelector("img")) slot.insertAdjacentHTML("beforeend", `<img src="${esc(url)}" alt="Cover of ${esc(f.t)}" style="position:relative;z-index:2" onerror="this.remove()">`);
-  }, ()=>{});
+  if(!sum) fillSummary(f, token);   // only if it was too slow to wait for
   // Suggestions only load when asked for, which also keeps opening a card quick.
   const moreBtn = detail.querySelector("#d-more-btn");
   if(moreBtn) moreBtn.onclick = ()=>{ moreBtn.disabled = true; moreBtn.textContent = "Finding books like this…";
@@ -543,17 +549,17 @@ function fillSummary(b, token){
 async function openPreview(m, from){
   const token = ++openToken;
   const det = await timeout(MM.bookDetails(m).catch(()=>m), 6000) || m;
-  const settings = await timeout(MM.resolveSettings([det]).catch(()=>null), 9000);
+  const [settings, parts] = await Promise.all([timeout(MM.resolveSettings([det]).catch(()=>null), 9000), cardParts(det)]);
   if(token !== openToken) return;
   const s = settings && settings[0];
   const note = s ? MM.cleanNote(s.n, placeLine({p:s.p, c:s.c})) : "";
   if(s && isFinite(s.lat)){ preview = {lat:s.lat, lon:s.lon}; selected = null; renderPins(); flyTo({lat:s.lat, lon:s.lon}); }
-  detail.innerHTML = `<div class="top">${coverSlot(det, MM.coverURL(det, "L"))}
+  detail.innerHTML = `<div class="top">${coverSlot(det, parts.url)}
     <div class="stub"><small>${esc(det.y)}${det.pages ? " · " + det.pages + " pages" : ""}</small><h3>${esc(det.t)}</h3><p class="by">${esc(det.a)}</p><button class="x" aria-label="Close">×</button></div></div>
     <div class="body">
       ${from ? `<button type="button" class="back" id="pv-back" style="margin:0">← Back to ${esc(from.t)}</button>` : ""}
       ${s ? `<div><div class="place">${esc(placeLine({p:s.p, c:s.c}))}</div>${note ? `<p class="note" style="margin:6px 0 0">${esc(note)}</p>` : ""}</div>` : `<p class="hint" style="margin:0">We couldn't find where this one is set.</p>`}
-      <p class="ov" id="d-sum" hidden></p>
+      <p class="ov" id="d-sum"${parts.sum ? "" : " hidden"}>${esc(parts.sum || "")}</p>
       ${det.subjects && det.subjects.length ? `<div style="display:flex;gap:6px;flex-wrap:wrap">${det.subjects.slice(0, 3).map(x=>`<span class="tag muted">${esc(x)}</span>`).join("")}</div>` : ""}
       <div class="cta"><button class="btn gold" type="button" id="pv-add">Add to my map</button></div>
       <div class="watch"><b class="sub" style="font-size:15px">Find a copy</b>
@@ -567,7 +573,7 @@ async function openPreview(m, from){
   detail.hidden = false; detail.scrollTop = 0;
   detail.querySelector(".x").onclick = closeDetail;
   const back = $("#pv-back"); if(back) back.onclick = ()=>{ preview = null; openBook(from, true); };
-  fillSummary(det, token);
+  if(!parts.sum) fillSummary(det, token);
   $("#pv-add").onclick = ()=>{ preview = null; pendingLog = {ol:det.ol, t:det.t, a:det.a, y:det.y, coverId:det.coverId, qid:det.qid, places:det.places}; location.hash = "#/log"; };
 }
 function closeDetail(){ preview = null; openToken++; detail.hidden = true; selected = null; renderPins(); markListSelection(); }
@@ -604,7 +610,7 @@ function renderList(){
     if(!en.isIntersecting) return;
     listObserver.unobserve(en.target);
     const f = list[+en.target.dataset.i]; if(!f) return;
-    const url = await coverOf(f, "S");
+    const url = await loadImg(await coverOf(f, "S"));   // swap in only once fully loaded
     if(url){ en.target.style.backgroundImage = `url("${url}")`; en.target.classList.add("has"); }
   }), {rootMargin:"200px"});
   ul.querySelectorAll(".th").forEach(el=>listObserver.observe(el));
