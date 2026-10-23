@@ -1,7 +1,7 @@
 // BookMap's starter shelf: hand-checked settings, shown to visitors who aren't signed in.
 window.FEATURED = {
-  username:"bookmap", name:"TheBookMap", featured:true,
-  bio:"A well-read life on one map: 245 books across every continent, from Homer to last year's prize-winners, each pinned where its story happens.",
+  username:"bookmap", name:"Emily", featured:true,
+  bio:"Reader of everything, from Homer to last year's prize-winners. 245 books across every continent, each pinned where its story happens.",
   books:[
     {t:"One Hundred Years of Solitude",a:"Gabriel García Márquez",y:1967,p:"Macondo, near Aracataca",c:"Colombia",cont:"South America",lat:10.59,lon:-74.19,ap:1,n:"Seven generations of the Buendía family in Macondo, an invented town modelled on Aracataca.",r:5},
     {t:"Crime and Punishment",a:"Fyodor Dostoevsky",y:1866,p:"Haymarket, Saint Petersburg",c:"Russia",cont:"Europe",lat:59.926,lon:30.316,n:"Raskolnikov's garret, the pawnbroker's flat and the police station sit a few streets apart.",r:5},

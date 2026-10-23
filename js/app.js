@@ -471,15 +471,11 @@ async function openBook(f, fly){
   selected = f; preview = null;
   if(fly) flyTo(f);
   renderPins(); markListSelection();
-  const [url, sim] = await Promise.all([
-    timeout(coverOf(f, "L").catch(()=>null), 5000),
-    timeout(MM.similarFrom(f, onMyMap).catch(()=>null), 8000)
-  ]);
-  if(token !== openToken || selected !== f) return;
+  // The card opens straight away; the cover (if it isn't saved yet), the summary and the suggestions
+  // fill in as they arrive, so a slow lookup never holds the card up.
   const note = MM.cleanNote(f.n, placeLine(f));
   const mine = viewing.mine;
-  const list = sim && sim.list || [];
-  detail.innerHTML = `<div class="top">${coverSlot(f, url && url.replace(/-M\.jpg/, "-L.jpg"))}
+  detail.innerHTML = `<div class="top">${coverSlot(f, f.coverId ? MM.coverURL(f, "L") : null)}
     <div class="stub"><small>${esc(f.y)}</small><h3>${esc(f.t)}</h3><p class="by">${esc(f.a)}</p>${f.s ? `<p class="series">${esc(f.s)}</p>` : ""}<button class="x" aria-label="Close">×</button></div></div>
     <div class="body">
       <div><div class="place">${esc(placeLine(f))}</div><div class="coord">${fmtCoord(f.lat, f.lon)}</div></div>
@@ -488,14 +484,28 @@ async function openBook(f, fly){
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">${f.r ? `<span class="stars">${stars(f.r)}</span>` : ""}${f.rv ? '<span class="tag">Reviewed</span>' : ""}${f.rc > 1 ? `<span class="tag">Read ${f.rc} times</span>` : ""}${f.ap ? '<span class="tag ap">Approx. setting</span>' : ""}${f.read ? `<span class="tag muted">Read ${esc(fmtDay(f.read))}</span>` : ""}</div>
       ${mine ? `<div class="cta"><button class="btn ghost small" id="d-move">Move pin</button><button class="btn ghost small" id="d-del">Remove</button></div>` : ""}
       <div class="links"><a class="linkbtn" href="${esc(MM.goodreadsPage(f))}" target="_blank" rel="noopener">Goodreads ↗</a>${f.ol ? `<a class="linkbtn" href="${esc(MM.olPage(f))}" target="_blank" rel="noopener">Open Library ↗</a>` : ""}</div>
-      ${list.length ? `<div class="more"><div class="more-h"><b class="sub" style="font-size:15px">${esc(sim.heading)}</b><span class="hint">Scroll for more →</span></div>
-        <ul>${list.map((m,i)=>`<li><button type="button" data-i="${i}" title="${esc(m.t)}"><span class="th" style="--c:${cloth(m)};background-image:url('${MM.coverURL(m, "M")}')"></span><span class="t">${esc(m.t)}</span><span class="y">${esc(m.a.split(" & ")[0])}</span></button></li>`).join("")}</ul>
-        <p class="hint" style="font-size:12px;margin:0">Tap one to see where it's set and where to find a copy.</p></div>` : ""}
+      <div id="d-more"><button type="button" class="btn ghost small" id="d-more-btn">See more like this</button></div>
     </div>`;
   detail.hidden = false; detail.scrollTop = 0;
   detail.querySelector(".x").onclick = closeDetail;
-  detail.querySelectorAll(".more button").forEach(b=>b.onclick = ()=>openPreview(list[+b.dataset.i], f));
   fillSummary(f, token);
+  if(!f.coverId) coverOf(f, "L").then(url=>{
+    const slot = token === openToken && detail.querySelector(".top .poster");
+    if(slot && url && !slot.querySelector("img")) slot.insertAdjacentHTML("beforeend", `<img src="${esc(url)}" alt="Cover of ${esc(f.t)}" style="position:relative;z-index:2" onerror="this.remove()">`);
+  }, ()=>{});
+  // Suggestions only load when asked for, which also keeps opening a card quick.
+  const moreBtn = detail.querySelector("#d-more-btn");
+  if(moreBtn) moreBtn.onclick = ()=>{ moreBtn.disabled = true; moreBtn.textContent = "Finding books like this…";
+  MM.similarFrom(f, onMyMap).catch(()=>null).then(sim=>{
+    const box = token === openToken && detail.querySelector("#d-more");
+    const list = sim && sim.list || [];
+    if(!box) return;
+    if(!list.length){ box.innerHTML = `<p class="hint" style="margin:0">We couldn't find similar books for this one yet.</p>`; return; }
+    box.innerHTML = `<div class="more"><div class="more-h"><b class="sub" style="font-size:15px">${esc(sim.heading)}</b><span class="hint">Scroll for more →</span></div>
+        <ul>${list.map((m,i)=>`<li><button type="button" data-i="${i}" title="${esc(m.t)}"><span class="th" style="--c:${cloth(m)};background-image:url('${MM.coverURL(m, "M")}')"></span><span class="t">${esc(m.t)}</span><span class="y">${esc(m.a.split(" & ")[0])}</span></button></li>`).join("")}</ul>
+        <p class="hint" style="font-size:12px;margin:0">Tap one to see where it's set and where to find a copy.</p></div>`;
+    box.querySelectorAll(".more button").forEach(b=>b.onclick = ()=>openPreview(list[+b.dataset.i], f));
+  }); };
   if(mine){
     detail.querySelector("#d-move").onclick = ()=>{ toast("Tap the map where it takes place"); startPicking(async pt=>{
       const moved = pt.country && pt.country !== f.c;
@@ -1244,7 +1254,7 @@ let posterCanvas = null, posterURL = null, posterSeq = 0;
 function posterTitle(){
   const o = viewing.owner || {};
   const name = viewing.mine ? (me ? (me.display_name || me.username) : "My") : (o.display_name || o.name || o.username || "My");
-  return name === "My" ? "My map" : o.featured ? "TheBookMap" : `${name}'s map`;
+  return name === "My" ? "My map" : `${name}'s map`;
 }
 function posterSubtitle(){
   const films = viewing.films, n = films.length;
@@ -1483,7 +1493,15 @@ function showFeaturedOrMine(){
 }
 window.addEventListener("hashchange", route);
 // The logo always goes home, even when the page is already on the map.
-document.querySelector(".brand").addEventListener("click", e=>{ if((location.hash || "#/") === "#/"){ e.preventDefault(); route(); window.scrollTo(0, 0); } });
+// The logo always goes home: your map (or Emily's starter shelf), on the Map view, zoomed out to every pin.
+document.querySelector(".brand").addEventListener("click", async e=>{
+  e.preventDefault();
+  setView("map");
+  if((location.hash || "#/") !== "#/") history.pushState(null, "", "#/");
+  await route();
+  window.scrollTo(0, 0);
+  setTimeout(()=>fitPins(true), 50);
+});
 
 /* ================= auth wiring ================= */
 async function loadMe(){
