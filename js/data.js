@@ -35,7 +35,7 @@ const GEO_ALIASES = {
   "democratic republic of the congo":"Dem. Rep. Congo","republic of the congo":"Congo","bosnia and herzegovina":"Bosnia and Herz.",
   "dominican republic":"Dominican Rep.","central african republic":"Central African Rep.","south sudan":"S. Sudan",
   "ivory coast":"Côte d'Ivoire","north macedonia":"Macedonia","eswatini":"eSwatini","equatorial guinea":"Eq. Guinea",
-  "western sahara":"W. Sahara","solomon islands":"Solomon Is.","state of palestine":"Palestine","palestinian territories":"Palestine",
+  "western sahara":"W. Sahara","french polynesia":"Fr. Polynesia","solomon islands":"Solomon Is.","state of palestine":"Palestine","palestinian territories":"Palestine",
   "soviet union":"Russia","russian empire":"Russia","russian soviet federative socialist republic":"Russia","russia (federation)":"Russia","russian federation":"Russia",
   "east germany":"Germany","west germany":"Germany","nazi germany":"Germany","german reich":"Germany","weimar republic":"Germany","german empire":"Germany","kingdom of prussia":"Germany","prussia":"Germany",
   "england":"United Kingdom","scotland":"United Kingdom","wales":"United Kingdom","northern ireland":"United Kingdom","great britain":"United Kingdom","kingdom of great britain":"United Kingdom","kingdom of england":"United Kingdom","united kingdom of great britain and ireland":"United Kingdom",
