@@ -1290,7 +1290,9 @@ function renderImport(){
 }
 
 /* ---------- poster ---------- */
-let posterOpts = Object.assign({theme:"library", size:"18x24", showKey:true}, MM.lsGet("bm-poster-v1", {}));
+let posterOpts = Object.assign({theme:MM.POSTER_DEFAULT, size:"24x18"}, MM.lsGet("bm-poster-v2", {}));
+if(!MM.POSTER_THEMES[posterOpts.theme]) posterOpts.theme = MM.POSTER_DEFAULT;
+if(!MM.POSTER_SIZES[posterOpts.size]) posterOpts.size = "24x18";
 let posterCanvas = null, posterURL = null, posterSeq = 0;
 function posterTitle(){
   const o = viewing.owner || {};
@@ -1307,13 +1309,12 @@ function renderPoster(){
   if(!viewing.films.length){ el.innerHTML = `<h2 class="h">Poster</h2><p class="hint">There are no books on this map yet. Log a few first, then come back for a poster.</p>`; return; }
   const seg = (name, items) => `<div class="seg" role="group" aria-label="${name}">${items}</div>`;
   el.innerHTML = `<h2 class="h">Poster</h2>
-    <p class="hint">${esc(posterTitle())}, ready to print. Every place gets a number, with a key underneath.</p>
+    <p class="hint">${esc(posterTitle())}, ready to print, landscape. One pin per country, a list by country, and your stats.</p>
     ${viewing.mine ? "" : `<p class="hint" style="margin:0">This is a sample made from ${esc(viewing.owner && viewing.owner.name || "the starter")}'s map. <a href="#/log">Log books</a> or <a href="#/import">link Goodreads</a> and this page will make a poster of yours.</p>`}
     <div class="pv busy" id="pv">Drawing your poster…</div>
     <div class="opts">
       <div class="field">Style${seg("Style", Object.entries(MM.POSTER_THEMES).map(([k,t])=>`<button type="button" data-theme="${k}" aria-pressed="${posterOpts.theme===k}"><i style="background:${t.bg};box-shadow:inset -8px 0 0 ${t.pin}"></i>${t.label}</button>`).join(""))}</div>
       <label class="field" for="ps">Size<select id="ps">${Object.entries(MM.POSTER_SIZES).map(([k,s])=>`<option value="${k}" ${posterOpts.size===k?"selected":""}>${s.label}</option>`).join("")}</select></label>
-      <label class="check" for="pk"><input type="checkbox" id="pk" ${posterOpts.showKey?"checked":""}> Include the key of places and titles</label>
       <div class="order">
         <b class="sub" style="font-size:15px">Order a print</b>
         <p class="hint" style="margin:0">Printed on heavyweight matte paper and shipped to your door. Unframed or framed.</p>
@@ -1323,7 +1324,6 @@ function renderPoster(){
     </div>`;
   el.querySelectorAll("[data-theme]").forEach(b=>b.onclick = ()=>{ posterOpts.theme = b.dataset.theme; el.querySelectorAll("[data-theme]").forEach(x=>x.setAttribute("aria-pressed", String(x===b))); drawPoster(); });
   $("#ps").onchange = e=>{ posterOpts.size = e.target.value; drawPoster(); };
-  $("#pk").onchange = e=>{ posterOpts.showKey = e.target.checked; drawPoster(); };
   $("#order").onclick = ()=>{
     if(ORDER_URL){ location.href = ORDER_URL; return; }
     $("#ordermsg").textContent = "Printed posters are coming soon. We'll let you know when you can order yours.";
@@ -1333,13 +1333,12 @@ function renderPoster(){
 }
 async function drawPoster(){
   const seq = ++posterSeq;
-  MM.lsSet("bm-poster-v1", posterOpts);
+  MM.lsSet("bm-poster-v2", posterOpts);
   await MM.posterFontsReady();
   if(seq !== posterSeq) return;
   posterCanvas = MM.renderPoster({
-    title: posterTitle(), subtitle: posterSubtitle(), films: viewing.films, countries,
-    theme: posterOpts.theme, size: posterOpts.size, showKey: posterOpts.showKey,
-    isSeries: ()=>false, geoName: MM.geoName, url: siteURL().replace(/^https?:\/\//, "").replace(/\/$/, "")
+    title: posterTitle(), films: viewing.films, countries, contOf, displayName: MM.displayCountry,
+    theme: posterOpts.theme, size: posterOpts.size, geoName: MM.geoName
   });
   const blob = await new Promise(r=>posterCanvas.toBlob(r, "image/jpeg", 0.85));
   if(seq !== posterSeq || !blob) return;
