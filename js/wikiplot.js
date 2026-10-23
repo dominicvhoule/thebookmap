@@ -223,8 +223,6 @@ MM.cleanNote = function(n, place){
     .replace(/,?\s*as the library catalogue records it\.?/gi, ".")
     .replace(/\s*Also mentions ([^.]+)\./, " Other places in the book: $1.")
     .replace(/\.\./g, ".").trim();
-  const only = s.match(/^Set in ([^.]+)\.\s*(.*)$/);
-  if(only && MM.norm(place || "").includes(MM.norm(only[1]))) s = only[2].trim();
   return s;
 };
 })();

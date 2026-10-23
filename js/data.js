@@ -347,10 +347,10 @@ MM.isoFor = function(name){
 // "More set in Buenos Aires": well-loved books the library catalogue files under the same place, then
 // the same country, then more by the same author.
 async function placeBooks(q){
-  const key = "bm-like2:" + MM.norm(q);
+  const key = "bm-like3:" + MM.norm(q);
   let list = lsGet(key, null);
   if(!list){
-    const d = await olFetch(`/search.json?q=${encodeURIComponent(q)}&lang=en&sort=rating&fields=${FIELDS}&limit=30`).catch(()=>null);
+    const d = await olFetch(`/search.json?q=${encodeURIComponent(q)}&lang=en&sort=editions&fields=${FIELDS}&limit=30`).catch(()=>null);
     list = (d && d.docs || []).map(fromDoc).filter(b=>b && b.coverId && b.a).map(b=>({ol:b.ol, t:b.t, a:b.a, y:b.y, coverId:b.coverId, qid:b.qid, places:b.places}));
     if(list.length) lsSet(key, list.slice(0, 24));
   }
@@ -358,7 +358,8 @@ async function placeBooks(q){
 }
 MM.similarFrom = async function(f, exclude){
   const self = f.ol, seen = new Set();
-  const pick = list => list.filter(m=>m.ol !== self && !seen.has(m.ol) && !(exclude && exclude(m))).slice(0, 8);
+  // Other books by the same writer (and translations of this one) only show under "More by".
+  const pick = (list, byAuthor) => list.filter(m=>m.ol !== self && !seen.has(m.ol) && !(exclude && exclude(m)) && (byAuthor || MM.norm(firstAuthor(m.a)) !== MM.norm(firstAuthor(f.a || "")))).slice(0, 8);
   const tries = [];
   // "Haymarket, Saint Petersburg" → Saint Petersburg (the last part that isn't the country).
   const parts = String(f.p || "").split(",").map(s=>s.trim()).filter(s=>s && MM.norm(s) !== MM.norm(f.c));
@@ -367,7 +368,7 @@ MM.similarFrom = async function(f, exclude){
   if(f.c) tries.push([`place:"${MM.displayCountry(f.c)}"`, "More set in " + MM.displayCountry(f.c)]);
   if(f.a) tries.push([`author:"${firstAuthor(f.a)}"`, "More by " + firstAuthor(f.a)]);
   for(const [q, heading] of tries){
-    const list = pick(await placeBooks(q));
+    const list = pick(await placeBooks(q), q.startsWith("author:"));
     if(list.length >= 3) return {list, heading};
   }
   return {list:[], heading:""};
