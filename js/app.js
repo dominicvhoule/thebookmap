@@ -474,6 +474,26 @@ let openToken = 0;
 const timeout = (p, ms) => Promise.race([p, new Promise(r=>setTimeout(()=>r(null), ms))]);
 // Resolves with the URL once the image has fully downloaded (null if it fails), so a card can wait
 // for its cover and appear complete instead of showing the plain cloth cover first.
+// Covers for a scrolling grid or list: each one is found (saved ID, then the shared cache, then Open
+// Library once) as it scrolls into view, and swapped in only once it has fully loaded.
+let coverObservers = [];
+function lazyCovers(root, bookOf, size){
+  const els = [...root.querySelectorAll(".th")];
+  const books = els.map(bookOf).filter(Boolean);
+  const need = books.filter(b=>!b.coverId).map(MM.bookKey);
+  const shared = need.length && MM.remoteMatches ? MM.remoteMatches(need).catch(()=>{}) : Promise.resolve();
+  const io = new IntersectionObserver(entries=>entries.forEach(async en=>{
+    if(!en.isIntersecting) return;
+    io.unobserve(en.target);
+    const b = bookOf(en.target); if(!b) return;
+    await shared;
+    const url = await loadImg(await coverOf(b, size).catch(()=>null));
+    if(url){ en.target.style.backgroundImage = `url("${url}")`; en.target.textContent = ""; en.target.classList.add("has"); }
+  }), {rootMargin:"300px"});
+  els.forEach(el=>io.observe(el));
+  coverObservers.push(io);
+  return io;
+}
 const loadImg = url => !url ? Promise.resolve(null) : new Promise(res=>{ const im = new Image(); im.onload = ()=>res(im.naturalWidth > 10 ? url : null); im.onerror = ()=>res(null); im.src = url; });
 // Everything a book card shows, fetched before the card appears (each part gives up after a few seconds).
 async function cardParts(b){
@@ -612,14 +632,7 @@ function renderList(){
   }
   ul.innerHTML = list.map((f,i)=>`<li><button data-i="${i}" style="--c:${cloth(f)}"><span class="bar ${f.ap?"ap":""}"></span><span class="th" data-i="${i}" data-t="${esc(f.t)}"></span><span style="min-width:0"><b>${esc(f.t)}</b><span class="meta"><i>${esc(f.a.split(" & ")[0])}</i>${f.a && placeLine(f) ? " · " : ""}${esc(placeLine(f))}</span></span><span class="r">${stars(f.r)}<em>${esc((f.read || "").slice(0, 4) || f.y)}</em></span></button></li>`).join("");
   ul.querySelectorAll("button").forEach(b=>b.onclick = ()=>openBook(list[+b.dataset.i], true));
-  listObserver = new IntersectionObserver(entries=>entries.forEach(async en=>{
-    if(!en.isIntersecting) return;
-    listObserver.unobserve(en.target);
-    const f = list[+en.target.dataset.i]; if(!f) return;
-    const url = await loadImg(await coverOf(f, "S"));   // swap in only once fully loaded
-    if(url){ en.target.style.backgroundImage = `url("${url}")`; en.target.classList.add("has"); }
-  }), {rootMargin:"200px"});
-  ul.querySelectorAll(".th").forEach(el=>listObserver.observe(el));
+  listObserver = lazyCovers(ul, el=>list[+el.dataset.i], "S");
   markListSelection();
 }
 function markListSelection(){
@@ -703,7 +716,7 @@ async function originsOf(films){
 }
 const madeLine = f => f.made && f.made.length ? "By a writer from " + f.made.slice(0, 2).map(regionName).join(" and ") + (f.made.length > 2 ? " and elsewhere" : "") : "Where the writer is from isn't on record";
 function filmRows(list){
-  return list.map((f,i)=>`<li><button type="button" data-i="${i}"><span class="th" style="--c:${cloth(f)};${MM.coverURL(f, "S") ? `background-image:url('${esc(MM.coverURL(f, "M"))}')` : ""}"></span><span style="min-width:0"><b>${esc(f.t)}</b><span class="meta">${esc([f.a.split(" & ")[0], f.p && f.p !== f.c ? f.p : "", f._away ? madeLine(f) : ""].filter(Boolean).join(" · "))}</span></span><span class="r"><em>${esc(f.y)}</em></span></button></li>`).join("");
+  return list.map((f,i)=>`<li><button type="button" data-i="${i}"><span class="th" data-i="${i}" style="--c:${cloth(f)}"></span><span style="min-width:0"><b>${esc(f.t)}</b><span class="meta">${esc([f.a.split(" & ")[0], f.p && f.p !== f.c ? f.p : "", f._away ? madeLine(f) : ""].filter(Boolean).join(" · "))}</span></span><span class="r"><em>${esc(f.y)}</em></span></button></li>`).join("");
 }
 async function openCountry(geo){
   const films = viewing.films.filter(f=>geoOf(f) === geo);
@@ -730,7 +743,7 @@ async function openCountry(geo){
     <h3 class="csec">Set in ${esc(name)}, by writers from elsewhere <span>${away.length}</span></h3>
     ${away.length ? `<ul class="cfilms away">${filmRows(away)}</ul>` : `<p class="hint">None: every book set here is by a writer from here.</p>`}`;
   bind();
-  el.querySelectorAll("ul.cfilms").forEach((ul, k)=>{ const list = k === 0 && home.length ? home : away; ul.querySelectorAll("button").forEach(b=>b.onclick = ()=>openBook(list[+b.dataset.i], true)); });
+  el.querySelectorAll("ul.cfilms").forEach((ul, k)=>{ const list = k === 0 && home.length ? home : away; ul.querySelectorAll("button").forEach(b=>b.onclick = ()=>openBook(list[+b.dataset.i], true)); lazyCovers(ul, th=>list[+th.dataset.i], "M"); });
 }
 
 // Map, List and Stats: three ways to look at the same books.
@@ -763,10 +776,11 @@ function renderList2(fresh){
   const box = $("#cgroups");
   box.innerHTML = groups.length ? groups.map((g,i)=>`<section>
       <button type="button" class="chead" data-g="${i}"><b>${esc(g.name)}</b><span>${g.films.length}</span></button>
-      <ul class="cposters">${g.films.map((f,j)=>{ const u = MM.coverURL(f, "M"); return `<li><button type="button" data-g="${i}" data-f="${j}" title="${esc(f.t)}${f.a ? " by " + esc(f.a) : ""}"><span class="th" style="--c:${cloth(f)};${u ? `background-image:url('${esc(u)}')` : ""}">${u ? "" : esc(f.t)}</span><span class="t">${esc(f.t)}</span></button></li>`; }).join("")}</ul>
+      <ul class="cposters">${g.films.map((f,j)=>`<li><button type="button" data-g="${i}" data-f="${j}" title="${esc(f.t)}${f.a ? " by " + esc(f.a) : ""}"><span class="th" data-g="${i}" data-f="${j}" style="--c:${cloth(f)}">${esc(f.t)}</span><span class="t">${esc(f.t)}</span></button></li>`).join("")}</ul>
     </section>`).join("") : `<p class="hint">${all.length ? "No country matches that." : "No books yet."}</p>`;
   box.querySelectorAll(".chead").forEach(b=>b.onclick = ()=>openCountry(groups[+b.dataset.g].geo));
   box.querySelectorAll(".cposters button").forEach(b=>b.onclick = ()=>openBook(groups[+b.dataset.g].films[+b.dataset.f], false));
+  lazyCovers(box, el=>groups[+el.dataset.g].films[+el.dataset.f], "M");
 }
 // The stats view.
 let statsToken = 0;
@@ -1498,6 +1512,7 @@ async function route(){
   const h = location.hash || "#/";
   if(/access_token|error_description|type=recovery/.test(h)) return;   // Supabase is handling a sign-in link
   closeDetail(); preview = null; picking = null; $("#pickhint").hidden = true; $("#map").classList.remove("picking");
+  setView("map");   // every page opens on the map; List and Stats are views of the map, not pages
   const [, a, b] = h.split("/");
   if(a === "u" && b){
     setNav(""); showPanel("map");

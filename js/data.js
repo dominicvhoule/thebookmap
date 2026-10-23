@@ -143,8 +143,8 @@ MM.searchBooks = async function(query){
 MM.matchMemo = {};
 MM.matchBook = async function(e){
   const cacheKey = "bm-match2:" + (e.isbn13 || e.isbn || MM.bookKey(e));
-  const hit = lsGet(cacheKey, undefined); if(hit !== undefined) return hit;
   const shared = MM.matchMemo[MM.bookKey(e)]; if(shared){ lsSet(cacheKey, shared); return shared; }
+  const hit = lsGet(cacheKey, undefined); if(hit !== undefined) return hit;
   let found = null, failed = false;
   const get = path => olFetch(path).catch(err=>{ if(/ol-busy/.test(err && err.message)) failed = true; return null; });
   for(const isbn of [e.isbn13, e.isbn].filter(Boolean)){
