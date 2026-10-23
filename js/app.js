@@ -93,11 +93,15 @@ if(sb){
 }
 
 /* ================= my books: account or this browser ================= */
+// Maps live on accounts: signed-out visitors can look around but need an account to save books.
+// (Books an older version saved in a browser move onto the account at the next sign-in.)
 const LOCAL = "bm-local-books";
+const NEED_ACCOUNT = "Create an account or sign in to save books to your map.";
+const signedOut = () => !!(sb && !me);
 const Store = {
   async load(){
     if(cloud()) return fetchLogs(me.id);
-    return MM.lsGet(LOCAL, []);
+    return signedOut() ? [] : MM.lsGet(LOCAL, []);
   },
   async add(list){
     if(!list.length) return {added:0};
@@ -111,6 +115,7 @@ const Store = {
       }
       return {added};
     }
+    if(signedOut()) throw new Error(NEED_ACCOUNT);
     const cur = MM.lsGet(LOCAL, []); const have = new Set(cur.map(MM.bookKey));
     const fresh = list.filter(f=>!have.has(MM.bookKey(f))).map(f=>{ const o = Object.assign({}, f); delete o.places; return o; });
     if(!MM.lsSet(LOCAL, [...fresh, ...cur])) throw new Error("This browser is out of storage space. Create an account to keep more books.");
@@ -123,6 +128,7 @@ const Store = {
         note:row.note, rating:row.rating, source:row.source, gr_id:row.gr_id, reviewed:row.reviewed, read_on:row.read_on, read_count:row.read_count, cover_id:row.cover_id}).eq("id", f.id);
       if(error) throw error;
     } else if(!cloud()){
+      if(signedOut()) throw new Error(NEED_ACCOUNT);
       const cur = MM.lsGet(LOCAL, []); const k = MM.bookKey(f);
       MM.lsSet(LOCAL, cur.map(x=>MM.bookKey(x)===k ? Object.assign({}, x, patch) : x));
     }
@@ -130,7 +136,7 @@ const Store = {
   },
   async remove(f){
     if(cloud() && f.id){ const {error} = await sb.from("book_logs").delete().eq("id", f.id); if(error) throw error; }
-    else if(!cloud()){ const k = MM.bookKey(f); MM.lsSet(LOCAL, MM.lsGet(LOCAL, []).filter(x=>MM.bookKey(x)!==k)); }
+    else if(!cloud()){ if(signedOut()) throw new Error(NEED_ACCOUNT); const k = MM.bookKey(f); MM.lsSet(LOCAL, MM.lsGet(LOCAL, []).filter(x=>MM.bookKey(x)!==k)); }
   }
 };
 let myBooks = [];
@@ -819,9 +825,16 @@ function paintAccountLink(){ $("#acct-link").textContent = me ? "@" + me.usernam
 
 /* ---------- log a book: search Open Library, pick the right one, we find the setting ---------- */
 let draft = null, draftRating = null, searchT = null, searchSeq = 0;
+// Logging and Goodreads need an account: signed-out visitors get this instead.
+function needAccount(el, title, what){
+  el.innerHTML = `<h2 class="h">${esc(title)}</h2>
+    <p class="hint" style="margin:0;font-size:15px;color:var(--ink)">Create a free account to ${what}. Your map is saved to your account, so it's there on any device and friends can follow it.</p>
+    <div class="cta"><a class="btn" href="#/account/up">Create an account</a><a class="btn ghost" href="#/account/in">Sign in</a></div>`;
+}
 function renderLog(){
-  showMine_keepView();
   const el = $("#log");
+  if(signedOut()) return needAccount(el, "Log a book", "start logging books");
+  showMine_keepView();
   el.innerHTML = `<h2 class="h">Log a book</h2>
     <div class="search"><label for="lq" class="sr">Book title or author</label><input id="lq" type="search" autocomplete="off" placeholder="Search a title or author, e.g. Pedro Páramo"></div>
     <p class="hint" id="ls">Start typing and pick the right book. We'll work out where it takes place.</p>
@@ -1186,8 +1199,9 @@ async function importGoodreadsExport(file, status, button){
 
 let grEditing = false;   // the linked profile stays locked until "Change profile" is clicked
 function renderImport(){
-  showMine_keepView();
   const el = $("#import");
+  if(signedOut()) return needAccount(el, "Goodreads", "link your Goodreads and bring in your books");
+  showMine_keepView();
   const link = grLinked();
   const last = MM.lsGet(grSyncKey(), 0);
   const rep = MM.lsGet(grReportKey(), null);
@@ -1327,7 +1341,9 @@ async function renderExplore(){
     <div class="search"><label for="pq" class="sr">Search people</label><input id="pq" type="search" autocomplete="off" placeholder="Search by username or name"></div>
     <div class="list" id="pr"></div>
     ${me ? `<div class="cta"><button class="btn ghost small" id="invite">Invite friends</button>${("contacts" in navigator && "ContactsManager" in window) ? `<button class="btn ghost small" id="fromcontacts">Find friends in contacts</button>` : ""}</div><div id="cres"></div>
-      <h3 class="sub">Following</h3><div class="list" id="following"><p class="hint">Loading…</p></div>` : `<p class="notice"><a href="#/account">Sign in</a> to follow people and find friends from your contacts.</p>`}
+      <h3 class="sub">Following</h3><div class="list" id="following"><p class="hint">Loading…</p></div>
+      <h3 class="sub">Followers</h3><div class="list" id="followers"><p class="hint">Loading…</p></div>
+      <p class="hint" style="margin:0;font-size:12.5px">Follows are shared with TheMovieMap: follow someone on either site and it counts on both.</p>` : `<p class="notice"><a href="#/account">Sign in</a> to follow people and find friends from your contacts.</p>`}
     <h3 class="sub">New on TheBookMap</h3><div class="list" id="newest"><p class="hint">Loading…</p></div>
     <h3 class="sub">Starter shelf</h3><div class="list">${starterCard()}</div>`;
   let t; $("#pq").addEventListener("input", e=>{ clearTimeout(t); t = setTimeout(()=>searchPeople(e.target.value.trim()), 250); });
@@ -1336,12 +1352,20 @@ async function renderExplore(){
     $("#invite").onclick = ()=>shareLink(profileURL(me.username), "Follow my map on TheBookMap");
     const fc = $("#fromcontacts"); if(fc) fc.onclick = findFromContacts;
     const {data} = await sb.from("follows").select(`followee:profiles!follows_followee_fkey(id,username,display_name${counts})`).eq("follower", me.id).limit(100);
-    const fl = (data||[]).map(r=>r.followee).filter(Boolean);
-    $("#following").innerHTML = fl.length ? fl.map(personCard).join("") : `<p class="hint">You're not following anyone yet. Search above, or invite friends.</p>`;
+    const flAll = (data||[]).map(r=>r.followee).filter(Boolean), fl = flAll.filter(hasBookMap), flRest = flAll.length - fl.length;
+    $("#following").innerHTML = (fl.length ? fl.map(personCard).join("") : `<p class="hint">${flRest ? "None of the people you follow have a book map yet." : "You're not following anyone yet. Search above, or invite friends."}</p>`)
+      + (flRest ? `<p class="hint" style="margin:0;font-size:12.5px">${flRest} more ${flRest === 1 ? "person" : "people"} you follow ${flRest === 1 ? "hasn't" : "haven't"} started a book map yet. They'll show up here once they log a book.</p>` : "");
+    const {data:fr} = await sb.from("follows").select(`follower:profiles!follows_follower_fkey(id,username,display_name${counts})`).eq("followee", me.id).limit(100);
+    const frAll = (fr||[]).map(r=>r.follower).filter(Boolean), frs = frAll.filter(hasBookMap), frRest = frAll.length - frs.length;
+    const fe = $("#followers"); if(fe) fe.innerHTML = (frs.length ? frs.map(personCard).join("") : `<p class="hint">${frRest ? "None of your followers have a book map yet." : `No followers yet. Share your map with "Invite friends".`}</p>`)
+      + (frRest ? `<p class="hint" style="margin:0;font-size:12.5px">${frRest} more ${frRest === 1 ? "follower hasn't" : "followers haven't"} started a book map yet.</p>` : "");
   }
   const {data:newest} = booksReady ? await sb.rpc("book_readers", {n:12}) : {data:[]};
   const nn = $("#newest"); if(nn) nn.innerHTML = (newest||[]).length ? newest.map(p=>personCard(Object.assign({}, p, {book_logs:[{count:p.books}]}))).join("") : `<p class="hint">Nobody yet. Be the first.</p>`;
 }
+// Accounts and follows are shared with TheMovieMap (same Supabase project). Here we list only people who
+// have a book map, i.e. at least one book logged; follows made on either site count on both.
+const hasBookMap = p => !booksReady || !!(p && p.book_logs && p.book_logs[0] && p.book_logs[0].count > 0);
 function personCard(p){
   const n = p.book_logs && p.book_logs[0] ? p.book_logs[0].count : "";
   const name = p.display_name || p.username;
@@ -1351,9 +1375,10 @@ async function searchPeople(q){
   const box = $("#pr"); if(!box) return;
   if(q.length < 2){ box.innerHTML = ""; return; }
   const like = "%" + q.replace(/[%_\\]/g, m=>"\\" + m) + "%";
-  const {data, error} = await sb.from("profiles").select(`id,username,display_name${booksReady ? ",book_logs(count)" : ""}`).or(`username.ilike.${like},display_name.ilike.${like}`).limit(20);
+  const {data:all, error} = await sb.from("profiles").select(`id,username,display_name${booksReady ? ",book_logs(count)" : ""}`).or(`username.ilike.${like},display_name.ilike.${like}`).limit(40);
   if(error){ box.innerHTML = `<p class="err">Search didn't go through.</p>`; return; }
-  box.innerHTML = data.length ? data.map(personCard).join("") : `<p class="hint">No one matches "${esc(q)}".</p>`;
+  const data = all.filter(hasBookMap).slice(0, 20);
+  box.innerHTML = data.length ? data.map(personCard).join("") : `<p class="hint">No one with a book map matches "${esc(q)}".</p>`;
 }
 async function sha256(s){ const b = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s)); return [...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,"0")).join(""); }
 const normEmail = e => String(e||"").trim().toLowerCase();
