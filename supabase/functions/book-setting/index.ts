@@ -21,7 +21,7 @@ const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
 const MODEL = Deno.env.get("ANTHROPIC_MODEL") || "claude-haiku-5-5";
 const SB_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-const UA = { "User-Agent": "BookMap/1.0 (+https://dominicvhoule.github.io/bookmap/)" };
+const UA = { "User-Agent": "BookMap/1.0 (+https://dominicvhoule.github.io/thebookmap/)" };
 
 const db = (path: string, init: RequestInit = {}) =>
   fetch(`${SB_URL}/rest/v1/${path}`, {

@@ -11,7 +11,7 @@
 const SB_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const CRON_SECRET = Deno.env.get("CRON_SECRET") ?? "";
-const UA = { "User-Agent": "BookMap/1.0 (+https://dominicvhoule.github.io/bookmap/)" };
+const UA = { "User-Agent": "BookMap/1.0 (+https://dominicvhoule.github.io/thebookmap/)" };
 const TIME_BUDGET = 100_000;          // stop starting new work after this many ms
 const STALE_HOURS = 20;               // a member is due once their map is this old
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));

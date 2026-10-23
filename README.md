@@ -2,7 +2,7 @@
 
 Log the books you read and see where each one takes place on a world map. The book version of [MovieMap](https://github.com/dominicvhoule/moviemap), with Goodreads in Letterboxd's place.
 
-Live at **https://dominicvhoule.github.io/bookmap/**
+Live at **https://dominicvhoule.github.io/thebookmap/**
 
 ## What it does
 
@@ -35,7 +35,7 @@ Resolved settings are cached in a shared `book_settings` table so each book is o
 The site works before this: anyone can browse the starter shelf and keep books in their browser, and people can sign in with their MovieMap account. This one step turns on books on accounts, People and the nightly Goodreads check.
 
 1. **SQL Editor → New query**: paste all of `supabase/migrations/101_bookmap.sql` and press **Run**. It only adds tables and columns; nothing of MovieMap's is changed. It also schedules the nightly Goodreads check, using the secret MovieMap's daily sync already keeps in Vault.
-2. **Authentication → URL Configuration**: add `https://dominicvhoule.github.io/bookmap/` under **Redirect URLs**, so sign-up and password emails come back to BookMap.
+2. **Authentication → URL Configuration**: add `https://dominicvhoule.github.io/thebookmap/` under **Redirect URLs**, so sign-up and password emails come back to BookMap.
 
 The three functions are already deployed to the project: `goodreads-feed` (Verify JWT on), `book-sync` (Verify JWT off; uses `CRON_SECRET`), and `book-setting` (Verify JWT on; does nothing until `ANTHROPIC_API_KEY` is set, the same key MovieMap's AI step uses). To redeploy one, paste its `supabase/functions/<name>/index.ts` into the Supabase editor.
 

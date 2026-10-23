@@ -18,7 +18,7 @@ const CORS = {
 };
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...CORS, "Content-Type": "application/json" } });
-const UA = { "User-Agent": "Mozilla/5.0 (compatible; BookMap/1.0; +https://dominicvhoule.github.io/bookmap/)", "Accept-Language": "en-US,en;q=0.9" };
+const UA = { "User-Agent": "Mozilla/5.0 (compatible; BookMap/1.0; +https://dominicvhoule.github.io/thebookmap/)", "Accept-Language": "en-US,en;q=0.9" };
 const GR = "https://www.goodreads.com";
 
 const ENT: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", "#39": "'", nbsp: " " };
