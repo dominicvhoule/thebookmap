@@ -633,7 +633,7 @@ async function renderCTA(){
     return;
   }
   if(o.featured && !me){
-    cta.innerHTML = sb ? `<a class="btn gold" href="#/account">Create your map</a><a class="btn ghost" href="#/explore">Find people</a>` : `<a class="btn" href="#/log">Start your map</a>`;
+    cta.innerHTML = sb ? `<a class="btn gold" href="#/account/up">Create your map</a><a class="btn ghost" href="#/explore">Find people</a>` : `<a class="btn" href="#/log">Start your map</a>`;
   }
   // Overlap with my map.
   if(myBooks.length && viewing.films.length){
@@ -664,6 +664,7 @@ function renderAll(){ setOwnerHeader(); renderPins(); renderList(); renderCTA();
 
 function showMap(owner, films, mine){
   viewing = {owner, films, mine};
+  const vt = document.querySelector(".viewtog"); if(vt) vt.hidden = !!owner.welcome;   // nothing to list on the welcome
   selected = null; detail.hidden = true; $("#q").value = "";
   renderAll(); fitPins(true);
 }
@@ -811,7 +812,7 @@ async function renderStats(){
 
 /* ================= rail views ================= */
 function showPanel(id){
-  ["map","explore","log","import","account","poster","country"].forEach(v=>$("#view-"+v).hidden = v !== id);
+  ["map","welcome","explore","log","import","account","poster","country"].forEach(v=>$("#view-"+v).hidden = v !== id);
 }
 function setNav(name){ document.querySelectorAll(".nav a, .acct").forEach(a=>a.setAttribute("aria-current", a.dataset.nav === name ? "page" : "false")); }
 function paintAccountLink(){ $("#acct-link").textContent = me ? "@" + me.username : (sb ? "Sign in" : "Account"); }
@@ -1490,8 +1491,22 @@ async function route(){
   if(a === "import"){ setNav("import"); showPanel("import"); return renderImport(); }
   if(a === "poster" && !POSTERS){ location.replace("#/"); return; }
   if(a === "poster"){ setNav(""); showPanel("poster"); if(!viewing.owner) showFeaturedOrMine(); return renderPoster(); }
-  if(a === "account"){ setNav("account"); showPanel("account"); if(!viewing.owner) showFeaturedOrMine(); return renderAccount(); }
-  setNav("home"); showPanel("map"); showFeaturedOrMine();
+  if(a === "account"){ if(b === "up" || b === "in") acctTab = b; setNav("account"); showPanel("account"); if(!viewing.owner) showFeaturedOrMine(); return renderAccount(); }
+  setNav("home");
+  if(!me && !myBooks.length) return showWelcome();
+  showPanel("map"); showFeaturedOrMine();
+}
+// First visit (signed out, no books yet): an invitation to make a map, with Emily's starter shelf to look around.
+function showWelcome(){
+  showMap({name:"TheBookMap", username:"", bio:"", welcome:true}, [], false);
+  showPanel("welcome");
+  $("#whose-k").textContent = "Welcome to"; $("#whose-h").textContent = "TheBookMap";
+  $("#welcome").innerHTML = `<h2 class="h">See the world one book at a time</h2>
+    <p class="lead">Every book you've read, pinned where its story takes place. Link your Goodreads and your whole Read shelf lands on the map, or add books one by one.</p>
+    <div class="cta"><a class="btn gold" href="#/account/up">Create your map</a><a class="btn ghost" href="#/import">Link Goodreads</a></div>
+    <p class="hint">Already have an account? <a href="#/account/in">Sign in</a>. MovieMap accounts work here too.</p>
+    <h3 class="sub" style="margin-top:22px">Or look around first</h3>
+    <div class="list">${starterCard()}</div>`;
 }
 function showFeaturedOrMine(){
   if(me || myBooks.length) return showMine();

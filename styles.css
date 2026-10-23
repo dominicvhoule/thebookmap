@@ -341,3 +341,10 @@ a{color:var(--pin);text-underline-offset:2px}
   .poster{width:84px}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+
+/* first-visit welcome */
+.welcome{display:grid;gap:14px;align-content:start}
+.welcome .h{margin:0;font-family:var(--f-display);font-weight:700;font-size:30px;line-height:1.08;text-wrap:balance}
+.welcome .lead{margin:0;color:var(--muted);font-size:15.5px}
+.welcome .cta{display:flex;gap:10px;flex-wrap:wrap}
+.welcome .cta a{text-decoration:none}
