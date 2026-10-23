@@ -105,9 +105,12 @@ async function olFetch(path){
   throw new Error("ol-busy");
 }
 MM.olFetch = olFetch;
+const COVER_BASE = String((window.BOOKMAP_CONFIG || {}).COVER_BASE || "https://covers.openlibrary.org").replace(/\/$/, "");
 MM.coverURL = (b, size) => {
   if(!b) return null;
-  if(b.coverId) return `https://covers.openlibrary.org/b/id/${b.coverId}-${size||"L"}.jpg`;
+  // Covers come from your own cover server (a Cloudflare Worker in front of R2) once COVER_BASE is set
+  // in config.js; until then straight from Open Library. Moving hosts later only changes COVER_BASE.
+  if(b.coverId) return `${COVER_BASE}/b/id/${b.coverId}-${size||"L"}.jpg`;
   if(b.isbn) return `https://covers.openlibrary.org/b/isbn/${b.isbn}-${size||"L"}.jpg?default=false`;
   return null;
 };
