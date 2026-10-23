@@ -79,18 +79,28 @@ MM.countryAt = function(lon, lat){
 /* ---------------- Open Library ---------------- */
 const OL = "https://openlibrary.org";
 const FIELDS = "key,title,subtitle,author_name,first_publish_year,cover_i,id_wikidata,place,edition_count,number_of_pages_median,editions,editions.title,editions.cover_i,editions.language";
-let olGate = Promise.resolve(), olLast = 0;
+let olGate = Promise.resolve(), olLast = 0, olGap = 350, olPauseUntil = 0;
+// Open Library asks apps to go gently. Requests go one at a time, a few a second. If Open Library says
+// it's busy, every request waits and the pace slows down, then speeds back up once it answers again.
+// A long sync never gives up on a book because of this: it waits and tries again (up to about two minutes).
+MM.olBusyAt = 0;   // when Open Library last asked us to slow down (the page mentions it)
 async function olFetch(path){
-  // Open Library asks apps to go gently: at most a few requests a second from one visitor.
-  const turn = olGate.then(async()=>{ const wait = 220 - (Date.now() - olLast); if(wait > 0) await MM.sleep(wait); olLast = Date.now(); });
-  olGate = turn.catch(()=>{});
-  await turn;
-  for(let attempt=0; attempt<3; attempt++){
-    const r = await fetch(OL + path);
-    if(r.status === 429 || r.status >= 500){ await MM.sleep(1500 * (attempt + 1)); continue; }
-    if(r.status === 404) return null;
-    if(!r.ok) throw new Error("ol-http-" + r.status);
-    return r.json();
+  for(let attempt=0; attempt<9; attempt++){
+    const turn = olGate.then(async()=>{
+      const wait = Math.max(olGap - (Date.now() - olLast), olPauseUntil - Date.now());
+      if(wait > 0) await MM.sleep(wait);
+      olLast = Date.now();
+    });
+    olGate = turn.catch(()=>{});
+    await turn;
+    let r = null;
+    try{ r = await fetch(OL + path); }catch(e){ r = null; }   // network hiccup: treat like busy
+    if(r && r.status === 404) return null;
+    if(r && r.ok){ olGap = Math.max(350, olGap * 0.9); return r.json(); }
+    if(r && r.status >= 400 && r.status < 500 && r.status !== 429) throw new Error("ol-http-" + r.status);
+    olGap = Math.min(4000, olGap * 2);
+    olPauseUntil = Date.now() + Math.min(30000, 2000 * 2 ** attempt);
+    MM.olBusyAt = Date.now();
   }
   throw new Error("ol-busy");
 }
@@ -126,17 +136,21 @@ MM.searchBooks = async function(query){
     .sort((x,y)=>y.s - x.s).slice(0, 10).map(x=>x.b);
 };
 // The Open Library work for a book we know by ISBN, title and author (Goodreads entries, the starter shelf).
+// Shared with every reader (see MM.remoteMatches in app.js): a book matched once is never searched again.
+MM.matchMemo = {};
 MM.matchBook = async function(e){
   const cacheKey = "bm-match2:" + (e.isbn13 || e.isbn || MM.bookKey(e));
   const hit = lsGet(cacheKey, undefined); if(hit !== undefined) return hit;
-  let found = null;
+  const shared = MM.matchMemo[MM.bookKey(e)]; if(shared){ lsSet(cacheKey, shared); return shared; }
+  let found = null, failed = false;
+  const get = path => olFetch(path).catch(err=>{ if(/ol-busy/.test(err && err.message)) failed = true; return null; });
   for(const isbn of [e.isbn13, e.isbn].filter(Boolean)){
-    const d = await olFetch(`/search.json?isbn=${encodeURIComponent(isbn)}&lang=en&fields=${FIELDS}&limit=1`).catch(()=>null);
+    const d = await get(`/search.json?isbn=${encodeURIComponent(isbn)}&lang=en&fields=${FIELDS}&limit=1`);
     found = d && d.docs && fromDoc(d.docs[0]); if(found) break;
   }
   if(!found && e.t){
     const t = mainTitle(e.t), a = firstAuthor(e.a), nt = MM.norm(t), na = MM.norm(a.split(" ").pop());
-    const d = await olFetch(`/search.json?q=${encodeURIComponent(t + " " + a)}&lang=en&fields=${FIELDS}&limit=10`).catch(()=>null);
+    const d = await get(`/search.json?q=${encodeURIComponent(t + " " + a)}&lang=en&fields=${FIELDS}&limit=10`);
     let best = null, bestS = -1;
     (d && d.docs || []).map(fromDoc).filter(Boolean).forEach(b=>{
       const bt = MM.norm(mainTitle(b.t));
@@ -149,7 +163,10 @@ MM.matchBook = async function(e){
     found = bestS >= 13 ? best : null;     // title and author both have to match
   }
   if(found){ found = Object.assign({}, found); delete found.editions; }
+  // Open Library being busy isn't "no such book": don't remember that, so the next sync tries again.
+  if(!found && failed) throw new Error("ol-busy");
   lsSet(cacheKey, found || null);
+  if(found && MM.saveRemoteMatch) MM.saveRemoteMatch(MM.bookKey(e), found);
   return found || null;
 };
 // Details for one work: description and subjects (for previews), plus anything the summary lacked.
@@ -182,10 +199,16 @@ function parsePoint(s){
 }
 const qidOf = uri => uri ? uri.split("/").pop() : null;
 async function sparql(query){
-  try{
-    const r = await fetch("https://query.wikidata.org/sparql?format=json&query=" + encodeURIComponent(query), {headers:{Accept:"application/sparql-results+json"}});
-    return r.ok ? (await r.json()).results.bindings : [];
-  }catch(e){ return []; }
+  // Wikidata also limits busy clients; wait and try again rather than lose a book's setting.
+  for(let attempt=0; attempt<5; attempt++){
+    try{
+      const r = await fetch("https://query.wikidata.org/sparql?format=json&query=" + encodeURIComponent(query), {headers:{Accept:"application/sparql-results+json"}});
+      if(r.ok) return (await r.json()).results.bindings;
+      if(r.status !== 429 && r.status < 500) return [];
+    }catch(e){}
+    await MM.sleep(2000 * 2 ** attempt);
+  }
+  return [];
 }
 // Wikidata items for Open Library works (P648 links them).
 MM.qidsForWorks = async function(ols){

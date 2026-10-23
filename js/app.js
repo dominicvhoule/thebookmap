@@ -66,6 +66,24 @@ if(sb){
     }
     return got;
   };
+  // Open Library matches shared by every reader (table book_matches). If the table isn't there yet,
+  // the site simply looks books up itself.
+  let matchesTable = true;
+  MM.remoteMatches = async keys => {
+    if(!matchesTable) return;
+    const need = [...new Set(keys)].filter(k=>!MM.matchMemo[k]);
+    for(let i=0; i<need.length; i+=150){
+      const {data, error} = await sb.from("book_matches").select("*").in("book_key", need.slice(i, i+150));
+      if(error){ matchesTable = false; return; }
+      (data||[]).forEach(r=>MM.matchMemo[r.book_key] = {ol:r.ol_key || "", qid:r.wd_qid || "", coverId:r.cover_id || null, t:r.title || "", a:r.author || "", y:r.year || ""});
+    }
+  };
+  MM.saveRemoteMatch = (key, m) => {
+    if(!matchesTable || !session || !m || !m.ol) return;
+    sb.from("book_matches").upsert({book_key:key, ol_key:m.ol, wd_qid:/^Q\d+$/.test(m.qid || "") ? m.qid : null, cover_id:+m.coverId > 0 ? +m.coverId : null,
+      title:String(m.t || "").slice(0, 400), author:String(m.a || "").slice(0, 300), year:+m.y || null}, {onConflict:"book_key", ignoreDuplicates:true})
+      .then(({error})=>{ if(error && /book_matches/.test(error.message || "")) matchesTable = false; }, ()=>{});
+  };
   MM.aiSetting = null;   // switched on after sign-in, once the function answers
   MM.saveRemoteSettings = async map => {
     if(!session || !booksReady) return;
@@ -907,11 +925,20 @@ async function setGrLinked(link){
 // Turn Goodreads entries into map-ready books: find each one on Open Library, then where it's set.
 async function placeEntries(entries, progress){
   let done = 0;
-  const found = await MM.pool(entries, 3, async e=>{
-    const m = await MM.matchBook(e).catch(()=>null);
+  // Books another reader already matched need no lookup at all.
+  if(MM.remoteMatches) await MM.remoteMatches(entries.map(MM.bookKey)).catch(()=>{});
+  const busy = [];
+  const found = await MM.pool(entries, 2, async (e, i)=>{
+    const m = await MM.matchBook(e).catch(err=>{ if(/ol-busy/.test(err && err.message)) busy.push(i); return null; });
     done++; progress && progress(done, entries.length);
     return m;
   });
+  // If Open Library was too busy for some, wait a little and try those again before giving up for now.
+  // Anything still unfinished isn't remembered as missing, so the next sync picks it up.
+  if(busy.length){
+    await MM.sleep(20000);
+    for(const i of busy) found[i] = await MM.matchBook(entries[i]).catch(()=>null);
+  }
   // Goodreads' own title and author are kept, so the book is recognised on the next sync.
   const dets = entries.map((e,i)=>Object.assign({}, found[i] || {}, {t:e.t, a:e.a || (found[i] && found[i].a) || "", y:(found[i] && found[i].y) || e.y || ""}));
   const settings = await MM.resolveSettings(dets);
@@ -983,7 +1010,7 @@ async function syncGoodreads({quiet=false, full=false, progress=null} = {}){
     for(let i=0; i<todo.length; i+=40){
       const part = todo.slice(i, i+40);
       say(`Finding where your books take place… ${i} of ${todo.length}. Keep this page open.`);
-      const r = await placeEntries(part, (d,n)=>say(`Finding where your books take place… ${i + d} of ${todo.length}. Keep this page open.`));
+      const r = await placeEntries(part, (d,n)=>say(`Finding where your books take place… ${i + d} of ${todo.length}. Keep this page open.${Date.now() - MM.olBusyAt < 30000 ? " Open Library is busy, so this is going slower; nothing will be skipped." : ""}`));
       added += (await Store.add(r.ready)).added;
       missed.push(...r.missed);
     }
@@ -1124,7 +1151,7 @@ async function importGoodreadsExport(file, status, button){
     for(let i=0; i<todo.length; i+=40){
       const part = todo.slice(i, i+40);
       say(`Finding where your books take place… ${i} of ${todo.length}. Keep this page open.`);
-      const r = await placeEntries(part, (d)=>say(`Finding where your books take place… ${i + d} of ${todo.length}. Keep this page open.`));
+      const r = await placeEntries(part, (d)=>say(`Finding where your books take place… ${i + d} of ${todo.length}. Keep this page open.${Date.now() - MM.olBusyAt < 30000 ? " Open Library is busy, so this is going slower; nothing will be skipped." : ""}`));
       added += (await Store.add(r.ready)).added;
       missed.push(...r.missed);
     }
