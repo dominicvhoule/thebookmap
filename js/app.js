@@ -33,14 +33,14 @@ const toRow = f => ({
   title:String(f.t).slice(0, 400), author:f.a ? String(f.a).slice(0, 300) : null, year:+f.y || null, series:f.s ? String(f.s).slice(0, 200) : null,
   book_key:MM.bookKey(f), gr_id:/^\d{1,15}$/.test(f.gr || "") ? String(f.gr) : null, isbn:isbnOk(f.isbn) || null,
   ol_key:/^OL\d+W$/.test(f.ol || "") ? f.ol : null, wd_qid:/^Q\d+$/.test(f.qid || "") ? f.qid : null,
-  cover_url:(f.cover || MM.coverURL({coverId:f.coverId}, "L") || null), pages:+f.pages > 0 && +f.pages < 100000 ? Math.round(+f.pages) : null,
+  cover_id:+f.coverId > 0 ? Math.round(+f.coverId) : null, cover_url:null, pages:+f.pages > 0 && +f.pages < 100000 ? Math.round(+f.pages) : null,
   place:f.p ? String(f.p).slice(0, 200) : null, country:f.c || null, continent:f.cont || null, lat:f.lat, lon:f.lon, approx:!!f.ap,
   note:f.n ? String(f.n).slice(0,500) : null, rating:f.r ? Math.max(1, Math.min(5, Math.round(f.r))) : null, reviewed:!!f.rv,
   read_on:/^\d{4}-\d{2}-\d{2}$/.test(f.read || "") ? f.read : null, read_count:Math.max(1, Math.min(999, +f.rc || 1)), source:f.src || null
 });
 const fromRow = r => ({
   id:r.id, t:r.title, a:r.author||"", y:r.year||"", s:r.series||"", gr:r.gr_id||"", isbn:r.isbn||"", ol:r.ol_key||"", qid:r.wd_qid||"",
-  cover:r.cover_url||"", pages:r.pages||null, p:r.place||"", c:r.country||"", cont:r.continent||"", lat:r.lat, lon:r.lon, ap:r.approx?1:0,
+  coverId:r.cover_id||null, pages:r.pages||null, p:r.place||"", c:r.country||"", cont:r.continent||"", lat:r.lat, lon:r.lon, ap:r.approx?1:0,
   n:r.note||"", r:r.rating||null, rv:r.reviewed?1:0, read:r.read_on||"", rc:r.read_count||1, src:r.source||"", created:r.created_at
 });
 
@@ -102,7 +102,7 @@ const Store = {
     if(cloud() && f.id){
       const row = toRow(Object.assign({}, f, patch));
       const {error} = await sb.from("book_logs").update({lat:row.lat, lon:row.lon, approx:row.approx, place:row.place, country:row.country, continent:row.continent,
-        note:row.note, rating:row.rating, source:row.source, gr_id:row.gr_id, reviewed:row.reviewed, read_on:row.read_on, read_count:row.read_count, cover_url:row.cover_url}).eq("id", f.id);
+        note:row.note, rating:row.rating, source:row.source, gr_id:row.gr_id, reviewed:row.reviewed, read_on:row.read_on, read_count:row.read_count, cover_id:row.cover_id}).eq("id", f.id);
       if(error) throw error;
     } else if(!cloud()){
       const cur = MM.lsGet(LOCAL, []); const k = MM.bookKey(f);
@@ -116,6 +116,18 @@ const Store = {
   }
 };
 let myBooks = [];
+// Every cover comes from Open Library. A book's cover ID is looked up once, when it has none,
+// and saved with the book so later visits build the image link straight from it.
+async function coverOf(f, size){
+  if(!f.coverId){
+    const m = await MM.matchBook(f).catch(()=>null);
+    if(m && m.coverId){
+      if(myBooks.includes(f)) await Store.update(f, {coverId:m.coverId}).catch(()=>{ f.coverId = m.coverId; });
+      else f.coverId = m.coverId;
+    }
+  }
+  return MM.coverURL(f, size);
+}
 async function reloadMine(){ try{ myBooks = await Store.load(); }catch(e){ myBooks = []; toast("Couldn't load your books. Check your connection."); } }
 const myKeys = () => new Set(myBooks.map(MM.bookKey));
 const onMyMap = m => myKeys().has(MM.bookKey(m)) || (!!m.ol && myBooks.some(b=>b.ol === m.ol)) || (!!m.gr && myBooks.some(b=>b.gr === m.gr));
@@ -442,7 +454,7 @@ async function openBook(f, fly){
   if(fly) flyTo(f);
   renderPins(); markListSelection();
   const [url, sim] = await Promise.all([
-    timeout(MM.coverFor(f).catch(()=>null), 5000),
+    timeout(coverOf(f, "L").catch(()=>null), 5000),
     timeout(MM.similarFrom(f, onMyMap).catch(()=>null), 8000)
   ]);
   if(token !== openToken || selected !== f) return;
@@ -564,7 +576,7 @@ function renderList(){
     if(!en.isIntersecting) return;
     listObserver.unobserve(en.target);
     const f = list[+en.target.dataset.i]; if(!f) return;
-    const url = await MM.coverFor(f);
+    const url = await coverOf(f, "S");
     if(url){ en.target.style.backgroundImage = `url("${url}")`; en.target.classList.add("has"); }
   }), {rootMargin:"200px"});
   ul.querySelectorAll(".th").forEach(el=>listObserver.observe(el));
@@ -812,10 +824,10 @@ async function chooseBook(m){
   try{
     // A book from a Goodreads list or a suggestion may not have its Open Library record yet.
     let det = m.ol ? m : (await MM.matchBook(m).catch(()=>null));
-    det = det ? Object.assign({}, det, {t:m.t || det.t, a:m.a || det.a, gr:m.gr, isbn:m.isbn || det.isbn, cover:m.cover}) : Object.assign({}, m);
+    det = det ? Object.assign({}, det, {t:m.t || det.t, a:m.a || det.a, gr:m.gr, isbn:m.isbn || det.isbn}) : Object.assign({}, m);
     const [s] = await MM.resolveSettings([det]);
     st.classList.remove("busy");
-    draft = Object.assign({t:det.t, a:det.a || "", y:det.y || "", s:m.s || "", ol:det.ol || "", qid:det.qid || "", isbn:det.isbn || "", gr:det.gr || "", cover:det.cover || "", coverId:det.coverId || null, pages:det.pages || null},
+    draft = Object.assign({t:det.t, a:det.a || "", y:det.y || "", s:m.s || "", ol:det.ol || "", qid:det.qid || "", isbn:det.isbn || "", gr:det.gr || "", coverId:det.coverId || null, pages:det.pages || null},
       s || {p:"", c:"", lat:NaN, lon:NaN, ap:1, n:"", src:""});
     draft.read = m.read || new Date().toISOString().slice(0,10);
     draftRating = m.r || null;
@@ -854,7 +866,6 @@ function renderConfirm(){
   $("#c-date").onchange = e=>draft.read = e.target.value;
   $("#c-pin").onclick = async ()=>{
     const f = Object.assign({}, draft); if(draftRating) f.r = draftRating;
-    if(!f.cover && f.coverId) f.cover = MM.coverURL({coverId:f.coverId}, "L");
     $("#c-pin").disabled = true;
     try{
       await Store.add([f]); await reloadMine();
@@ -907,7 +918,7 @@ async function placeEntries(entries, progress){
   const ready = [], missed = [];
   entries.forEach((e,i)=>{
     const d = dets[i], s = settings[i];
-    const book = {t:e.t, s:e.s || "", a:d.a, y:d.y, ol:d.ol || "", qid:d.qid || "", isbn:e.isbn13 || e.isbn || "", gr:e.gr || "", cover:e.cover || (d.coverId ? MM.coverURL({coverId:d.coverId}, "L") : ""),
+    const book = {t:e.t, s:e.s || "", a:d.a, y:d.y, ol:d.ol || "", qid:d.qid || "", isbn:e.isbn13 || e.isbn || "", gr:e.gr || "", coverId:d.coverId || null,
       pages:e.pages || d.pages || null, r:e.r || null, rv:e.rv ? 1 : 0, rc:e.rc || 1, read:e.read || ""};
     if(!s) missed.push(book); else ready.push(Object.assign(book, s));
   });
@@ -928,7 +939,7 @@ async function grInvoke(body){
 }
 // The Read shelf, newest first, a hundred books a page. all.complete is true once the whole shelf has
 // been read, which removals rely on.
-const fromGr = b => { const c = MM.cleanTitle(b.title); return {t:c.t, s:c.s, a:b.author || "", gr:b.gid, isbn:b.isbn || "", isbn13:b.isbn13 || "", y:b.year || "", pages:b.pages || null, r:b.rating || null, read:b.read || "", rv:b.reviewed ? 1 : 0, cover:b.cover || ""}; };
+const fromGr = b => { const c = MM.cleanTitle(b.title); return {t:c.t, s:c.s, a:b.author || "", gr:b.gid, isbn:b.isbn || "", isbn13:b.isbn13 || "", y:b.year || "", pages:b.pages || null, r:b.rating || null, read:b.read || "", rv:b.reviewed ? 1 : 0}; };
 async function fetchGoodreadsShelf(user, maxPages, onPage){
   const all = []; all.complete = false; all.id = ""; all.name = "";
   const seen = new Set();
@@ -1081,7 +1092,7 @@ function readExport(text){
     const c = MM.cleanTitle(r.Title);
     return {t:c.t, s:c.s, a:r.Author || "", gr:/^\d+$/.test(r["Book Id"] || "") ? r["Book Id"] : "", isbn:isbnOk(r.ISBN), isbn13:isbnOk(r.ISBN13),
       y:+(r["Original Publication Year"] || r["Year Published"]) || "", pages:+r["Number of Pages"] || null, r:+r["My Rating"] || null,
-      read:day(r["Date Read"]) || "", rv:(r["My Review"] || "").trim() ? 1 : 0, rc:Math.max(1, +r["Read Count"] || 1), cover:""};
+      read:day(r["Date Read"]) || "", rv:(r["My Review"] || "").trim() ? 1 : 0, rc:Math.max(1, +r["Read Count"] || 1)};
   });
   return {books, shelved:rows.length};
 }

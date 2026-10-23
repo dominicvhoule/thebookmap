@@ -140,7 +140,7 @@ async function settingFor(key: string, e: Entry) {
   const ol = doc?.key?.replace("/works/", "") ?? null;
   let qid: string | null = (doc?.id_wikidata ?? []).find((q: string) => /^Q\d+$/.test(q)) ?? null;
   if (!qid && ol) { const rows = await sparql(`SELECT ?w WHERE { ?w wdt:P648 "${ol}" . } LIMIT 1`); qid = rows[0] ? qidOf(rows[0].w.value) : null; }
-  const extra = { ol, qid, cover: e.cover || (doc?.cover_i ? `https://covers.openlibrary.org/b/id/${doc.cover_i}-L.jpg` : null), year: doc?.first_publish_year ?? e.y };
+  const extra = { ol, qid, coverId: doc?.cover_i ?? null, year: doc?.first_publish_year ?? e.y };
   if (cached?.[0]) { const c = cached[0]; return { s: { place: c.place, country: c.country, continent: c.continent, lat: c.lat, lon: c.lon, approx: c.approx, note: c.note, source: c.source } as Setting, ...extra }; }
   let s: Setting | null = null, weak: Setting | null = null;
   if (qid) { s = await fromWikidata(qid).catch(() => null); if (s?.approx) { weak = s; s = null; } }
@@ -179,7 +179,7 @@ async function syncMember(m: { id: string; goodreads_id: string }, deadline: num
     const s = got.s;
     await db("book_logs?on_conflict=user_id,book_key", { method: "POST", headers: { Prefer: "resolution=ignore-duplicates" },
       body: JSON.stringify({ user_id: m.id, title: e.t.slice(0, 400), author: e.a.slice(0, 300) || null, year: got.year || null, series: e.s.slice(0, 200) || null, book_key: key,
-        gr_id: e.gr, isbn: e.isbn || null, ol_key: got.ol, wd_qid: got.qid, cover_url: got.cover, pages: e.pages && e.pages < 100000 ? e.pages : null,
+        gr_id: e.gr, isbn: e.isbn || null, ol_key: got.ol, wd_qid: got.qid, cover_id: got.coverId, cover_url: null, pages: e.pages && e.pages < 100000 ? e.pages : null,
         place: s.place?.slice(0, 200) || null, country: s.country?.slice(0, 100) || null, continent: s.continent?.slice(0, 40) || null, lat: +s.lat.toFixed(3), lon: +s.lon.toFixed(3),
         approx: s.approx, note: s.note?.slice(0, 500) || null, rating: e.r && e.r >= 1 && e.r <= 5 ? e.r : null, reviewed: e.rv, read_on: e.read, source: s.source }) });
     keys.add(key); added++;

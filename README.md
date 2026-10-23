@@ -18,7 +18,7 @@ Live at **https://dominicvhoule.github.io/bookmap/**
 
 | What | Source |
 |---|---|
-| Titles, authors, covers, editions | [Open Library](https://openlibrary.org/) (no key needed), plus the covers on your Goodreads shelf |
+| Titles, authors, covers, editions | [Open Library](https://openlibrary.org/) (no key needed). Every cover is Open Library's: each book saves its Open Library cover ID once, and the image link is built from it |
 | Your books, ratings, dates read | Your public Goodreads Read shelf (`goodreads-feed` function), or the Goodreads export |
 | Where a book takes place | [Wikidata](https://www.wikidata.org/) "narrative location" (P840), linked to Open Library works (P648) |
 | When Wikidata has none | The library catalogue's subject places on Open Library ("Saint Petersburg (Russia)"), located through Wikipedia |

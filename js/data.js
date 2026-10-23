@@ -97,7 +97,6 @@ async function olFetch(path){
 MM.olFetch = olFetch;
 MM.coverURL = (b, size) => {
   if(!b) return null;
-  if(b.cover) return b.cover;                                                        // Goodreads cover, full size
   if(b.coverId) return `https://covers.openlibrary.org/b/id/${b.coverId}-${size||"L"}.jpg`;
   if(b.isbn) return `https://covers.openlibrary.org/b/isbn/${b.isbn}-${size||"L"}.jpg?default=false`;
   return null;

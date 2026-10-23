@@ -109,3 +109,7 @@ select cron.schedule('bookmap-daily-sync-2', '50 9 * * *', $$
       'x-cron-secret', (select decrypted_secret from vault.decrypted_secrets where name = 'moviemap_cron_secret')),
     body := '{}'::jsonb, timeout_milliseconds := 150000);
 $$);
+
+-- Covers all come from Open Library: each book keeps its Open Library cover ID, and the site builds
+-- https://covers.openlibrary.org/b/id/{cover_id}-S|M|L.jpg from it. (cover_url is no longer written.)
+alter table public.book_logs add column if not exists cover_id integer check (cover_id > 0);
