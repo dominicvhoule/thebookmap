@@ -79,6 +79,20 @@ async function resolve(raw: string): Promise<{ id: string; name: string } | { er
   return { error: "not_found" };
 }
 
+// ---------- the profile's name: "Reader (dominicvhoule) - Nicoya…" → the username, else the display name ----------
+async function profileName(id: string) {
+  try {
+    const res = await get(`${GR}/user/show/${id}`);
+    if (!res.ok) return "";
+    const html = await res.text();
+    const t = decode((html.match(/<title>([\s\S]*?)<\/title>/) ?? [])[1] ?? "").trim();
+    const m = t.match(/^(.+?)\s*\(([A-Za-z0-9_.-]{2,40})\)/);
+    if (m) return m[2];
+    const og = (html.match(/property="og:title" content="([^"]*)"/) ?? [])[1];
+    return og ? decode(og).trim() : "";
+  } catch { return ""; }
+}
+
 // ---------- the Read shelf feed (RSS) ----------
 async function feed(id: string, page: number) {
   const res = await get(`${GR}/review/list_rss/${id}?shelf=read${page > 1 ? `&page=${page}` : ""}`);
@@ -120,9 +134,9 @@ Deno.serve(async (req) => {
     const who = await resolve(String(body.user ?? ""));
     if ("error" in who) return json({ error: who.error }, who.error === "bad_user" ? 400 : 404);
     const page = Math.max(1, Math.min(300, Math.floor(Number(body.page) || 1)));
-    const r = await feed(who.id, page);
+    const [r, profile] = await Promise.all([feed(who.id, page), page === 1 ? profileName(who.id) : Promise.resolve("")]);
     if ("error" in r) return json({ error: r.error, id: who.id }, r.status);
-    return json({ id: who.id, name: r.name || who.name, page, books: r.books, more: r.books.length >= 100 });
+    return json({ id: who.id, name: profile || r.name || who.name, page, books: r.books, more: r.books.length >= 100 });
   } catch {
     return json({ error: "unreachable" }, 502);
   }
