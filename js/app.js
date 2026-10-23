@@ -1308,6 +1308,7 @@ function renderPoster(){
   const seg = (name, items) => `<div class="seg" role="group" aria-label="${name}">${items}</div>`;
   el.innerHTML = `<h2 class="h">Poster</h2>
     <p class="hint">${esc(posterTitle())}, ready to print. Every place gets a number, with a key underneath.</p>
+    ${viewing.mine ? "" : `<p class="hint" style="margin:0">This is a sample made from ${esc(viewing.owner && viewing.owner.name || "the starter")}'s map. <a href="#/log">Log books</a> or <a href="#/import">link Goodreads</a> and this page will make a poster of yours.</p>`}
     <div class="pv busy" id="pv">Drawing your poster…</div>
     <div class="opts">
       <div class="field">Style${seg("Style", Object.entries(MM.POSTER_THEMES).map(([k,t])=>`<button type="button" data-theme="${k}" aria-pressed="${posterOpts.theme===k}"><i style="background:${t.bg};box-shadow:inset -8px 0 0 ${t.pin}"></i>${t.label}</button>`).join(""))}</div>
@@ -1536,7 +1537,7 @@ async function route(){
   if(a === "log"){ setNav("log"); showBackdrop(); showPanel("log"); return renderLog(); }
   if(a === "import"){ setNav("import"); showBackdrop(); showPanel("import"); return renderImport(); }
   if(a === "poster" && !POSTERS){ location.replace("#/"); return; }
-  if(a === "poster"){ setNav(""); showPanel("poster"); if(!viewing.owner) showFeaturedOrMine(); return renderPoster(); }
+  if(a === "poster"){ setNav("poster"); showPanel("poster"); showFeaturedOrMine(); return renderPoster(); }   // always your own map (or Emily's before you have one)
   if(a === "account"){ if(b === "up" || b === "in") acctTab = b; setNav("account"); showBackdrop(); showPanel("account"); return renderAccount(); }
   setNav("home");
   if(!me && !myBooks.length) return showWelcome();
