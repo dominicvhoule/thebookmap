@@ -59,9 +59,9 @@ MM.renderPoster = function(opts){
   let y = M + 40;
   ctx.fillStyle = T.pin; ctx.fillRect(M, y - 36, 44, 44);   // the red square
   ctx.fillStyle = T.ink; ctx.font = F.body(48, 700);
-  ctx.fillText("BookMap", M + 72, y);
+  ctx.fillText("TheBookMap", M + 72, y);
   ctx.fillStyle = T.muted; ctx.font = F.body(48, 400);
-  ctx.fillText("See the world one book at a time", M + 72 + ctx.measureText("BookMap  ").width + 40, y);
+  ctx.fillText("See the world one book at a time", M + 72 + ctx.measureText("TheBookMap  ").width + 40, y);
   y += 60;
   ctx.fillStyle = T.rule; ctx.fillRect(M, y, W - 2*M, 4);
   y += 30;

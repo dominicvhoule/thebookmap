@@ -1,4 +1,4 @@
-# BookMap
+# TheBookMap
 
 Log the books you read and see where each one takes place on a world map. The book version of [MovieMap](https://github.com/dominicvhoule/moviemap), with Goodreads in Letterboxd's place.
 

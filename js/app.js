@@ -582,8 +582,8 @@ async function renderCTA(){
   const o = viewing.owner || {};
   if(viewing.mine){
     cta.innerHTML = `<a class="btn gold" href="#/log">Log a book</a><a class="btn ghost" href="#/import">Goodreads</a>${POSTERS ? `<a class="btn ghost" href="#/poster">Poster</a>` : ""}${me ? `<button class="btn ghost" id="share">Share</button>` : ""}`;
-    const sh = $("#share"); if(sh) sh.onclick = ()=>shareLink(profileURL(me.username), "My BookMap");
-    if(me && !booksReady && sb){ ov.hidden = false; ov.innerHTML = "Your books are saved in this browser for now, while BookMap's accounts are being set up."; }
+    const sh = $("#share"); if(sh) sh.onclick = ()=>shareLink(profileURL(me.username), "My map on TheBookMap");
+    if(me && !booksReady && sb){ ov.hidden = false; ov.innerHTML = "Your books are saved in this browser for now, while TheBookMap's accounts are being set up."; }
     return;
   }
   if(o.featured && !me){
@@ -1206,7 +1206,7 @@ let posterCanvas = null, posterURL = null, posterSeq = 0;
 function posterTitle(){
   const o = viewing.owner || {};
   const name = viewing.mine ? (me ? (me.display_name || me.username) : "My") : (o.display_name || o.name || o.username || "My");
-  return name === "My" || o.featured ? "My BookMap" : `${name}'s BookMap`;
+  return name === "My" ? "My map" : o.featured ? "TheBookMap" : `${name}'s map`;
 }
 function posterSubtitle(){
   const films = viewing.films, n = films.length;
@@ -1273,12 +1273,12 @@ async function renderExplore(){
     <div class="list" id="pr"></div>
     ${me ? `<div class="cta"><button class="btn ghost small" id="invite">Invite friends</button>${("contacts" in navigator && "ContactsManager" in window) ? `<button class="btn ghost small" id="fromcontacts">Find friends in contacts</button>` : ""}</div><div id="cres"></div>
       <h3 class="sub">Following</h3><div class="list" id="following"><p class="hint">Loading…</p></div>` : `<p class="notice"><a href="#/account">Sign in</a> to follow people and find friends from your contacts.</p>`}
-    <h3 class="sub">New on BookMap</h3><div class="list" id="newest"><p class="hint">Loading…</p></div>
+    <h3 class="sub">New on TheBookMap</h3><div class="list" id="newest"><p class="hint">Loading…</p></div>
     <h3 class="sub">Starter shelf</h3><div class="list">${starterCard()}</div>`;
   let t; $("#pq").addEventListener("input", e=>{ clearTimeout(t); t = setTimeout(()=>searchPeople(e.target.value.trim()), 250); });
   const counts = booksReady ? ",book_logs(count)" : "";
   if(me){
-    $("#invite").onclick = ()=>shareLink(profileURL(me.username), "Follow my BookMap");
+    $("#invite").onclick = ()=>shareLink(profileURL(me.username), "Follow my map on TheBookMap");
     const fc = $("#fromcontacts"); if(fc) fc.onclick = findFromContacts;
     const {data} = await sb.from("follows").select(`followee:profiles!follows_followee_fkey(id,username,display_name${counts})`).eq("follower", me.id).limit(100);
     const fl = (data||[]).map(r=>r.followee).filter(Boolean);
@@ -1313,7 +1313,7 @@ async function findFromContacts(){
     const hashes = await Promise.all([...keys].slice(0,500).map(sha256));
     const {data, error} = await sb.rpc("find_by_contacts", {hashes});
     if(error) throw error;
-    out.innerHTML = data.length ? `<h3 class="sub">From your contacts</h3><div class="list">${data.map(personCard).join("")}</div>` : `<p class="hint">None of those contacts are on BookMap yet, or they haven't turned on "Let friends find me". Try Invite friends.</p>`;
+    out.innerHTML = data.length ? `<h3 class="sub">From your contacts</h3><div class="list">${data.map(personCard).join("")}</div>` : `<p class="hint">None of those contacts are on TheBookMap yet, or they haven't turned on "Let friends find me". Try Invite friends.</p>`;
   }catch(e){ out.innerHTML = `<p class="hint">Couldn't read your contacts.</p>`; }
 }
 async function shareLink(url, title){
@@ -1331,7 +1331,7 @@ function renderAccount(){
   }
   if(!session){
     el.innerHTML = `<h2 class="h">${acctTab === "up" ? "Create your map" : "Sign in"}</h2>
-      <p class="hint">One account for BookMap and MovieMap. Already on MovieMap? Sign in with the same email.</p>
+      <p class="hint">One account for TheBookMap and MovieMap. Already on MovieMap? Sign in with the same email.</p>
       <div class="tabs" role="tablist"><button role="tab" aria-selected="${acctTab==="in"}" data-t="in">Sign in</button><button role="tab" aria-selected="${acctTab==="up"}" data-t="up">Create account</button></div>
       <form id="af" class="pad" style="padding:0">
         ${acctTab==="up" ? `<label class="field" for="a-user">Username<input id="a-user" required autocomplete="username" placeholder="letters, numbers, _" pattern="[A-Za-z0-9_]{3,20}"></label>
@@ -1389,7 +1389,7 @@ function renderAccount(){
     </form>
     <p class="hint">Signed in as ${esc(session.user.email)}. Your profile and follows are shared with MovieMap.</p>`;
   $("#p-out").onclick = async ()=>{ await sb.auth.signOut(); };
-  $("#p-share").onclick = ()=>shareLink(profileURL(p.username), "My BookMap");
+  $("#p-share").onclick = ()=>shareLink(profileURL(p.username), "My map on TheBookMap");
   $("#pf").onsubmit = async ev=>{
     ev.preventDefault();
     const e = $("#p-err"); e.hidden = true;
