@@ -441,18 +441,21 @@ async function openBook(f, fly){
   selected = f; preview = null;
   if(fly) flyTo(f);
   renderPins(); markListSelection();
-  const [url, sim] = await Promise.all([
+  const [url, sim, sum] = await Promise.all([
     timeout(MM.coverFor(f).catch(()=>null), 5000),
-    timeout(MM.similarFrom(f, onMyMap).catch(()=>null), 8000)
+    timeout(MM.similarFrom(f, onMyMap).catch(()=>null), 8000),
+    timeout(MM.bookSummary(f).catch(()=>""), 7000)
   ]);
   if(token !== openToken || selected !== f) return;
+  const note = MM.cleanNote(f.n, placeLine(f));
   const mine = viewing.mine;
   const list = sim && sim.list || [];
   detail.innerHTML = `<div class="top">${coverSlot(f, url && url.replace(/-M\.jpg/, "-L.jpg"))}
     <div class="stub"><small>${esc(f.y)}</small><h3>${esc(f.t)}</h3><p class="by">${esc(f.a)}</p>${f.s ? `<p class="series">${esc(f.s)}</p>` : ""}<button class="x" aria-label="Close">×</button></div></div>
     <div class="body">
       <div><div class="place">${esc(placeLine(f))}</div><div class="coord">${fmtCoord(f.lat, f.lon)}</div></div>
-      ${f.n ? `<p class="note">${esc(f.n)}</p>` : ""}
+      ${sum ? `<p class="ov">${esc(sum)}</p>` : ""}
+      ${note ? `<p class="note">${esc(note)}</p>` : ""}
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">${f.r ? `<span class="stars">${stars(f.r)}</span>` : ""}${f.rv ? '<span class="tag">Reviewed</span>' : ""}${f.rc > 1 ? `<span class="tag">Read ${f.rc} times</span>` : ""}${f.ap ? '<span class="tag ap">Approx. setting</span>' : ""}${f.read ? `<span class="tag muted">Read ${esc(fmtDay(f.read))}</span>` : ""}</div>
       ${mine ? `<div class="cta"><button class="btn ghost small" id="d-move">Move pin</button><button class="btn ghost small" id="d-del">Remove</button></div>` : ""}
       <div class="links"><a class="linkbtn" href="${esc(MM.goodreadsPage(f))}" target="_blank" rel="noopener">Goodreads ↗</a>${f.ol ? `<a class="linkbtn" href="${esc(MM.olPage(f))}" target="_blank" rel="noopener">Open Library ↗</a>` : ""}</div>
@@ -493,16 +496,20 @@ function shopLink(shop, b){
 async function openPreview(m, from){
   const token = ++openToken;
   const det = await timeout(MM.bookDetails(m).catch(()=>m), 6000) || m;
-  const settings = await timeout(MM.resolveSettings([det]).catch(()=>null), 9000);
+  const [settings, sum] = await Promise.all([
+    timeout(MM.resolveSettings([det]).catch(()=>null), 9000),
+    timeout(MM.bookSummary(det).catch(()=>""), 7000)
+  ]);
   if(token !== openToken) return;
   const s = settings && settings[0];
+  const note = s ? MM.cleanNote(s.n, placeLine({p:s.p, c:s.c})) : "";
   if(s && isFinite(s.lat)){ preview = {lat:s.lat, lon:s.lon}; selected = null; renderPins(); flyTo({lat:s.lat, lon:s.lon}); }
   detail.innerHTML = `<div class="top">${coverSlot(det, MM.coverURL(det, "L"))}
     <div class="stub"><small>${esc(det.y)}${det.pages ? " · " + det.pages + " pages" : ""}</small><h3>${esc(det.t)}</h3><p class="by">${esc(det.a)}</p><button class="x" aria-label="Close">×</button></div></div>
     <div class="body">
       ${from ? `<button type="button" class="back" id="pv-back" style="margin:0">← Back to ${esc(from.t)}</button>` : ""}
-      ${s ? `<div><div class="place">${esc(placeLine({p:s.p, c:s.c}))}</div>${s.n ? `<p class="note" style="margin:6px 0 0">${esc(s.n)}</p>` : ""}</div>` : `<p class="hint" style="margin:0">We couldn't find where this one is set.</p>`}
-      ${det.ov ? `<p class="ov">${esc(det.ov)}</p>` : ""}
+      ${s ? `<div><div class="place">${esc(placeLine({p:s.p, c:s.c}))}</div>${note ? `<p class="note" style="margin:6px 0 0">${esc(note)}</p>` : ""}</div>` : `<p class="hint" style="margin:0">We couldn't find where this one is set.</p>`}
+      ${sum ? `<p class="ov">${esc(sum)}</p>` : ""}
       ${det.subjects && det.subjects.length ? `<div style="display:flex;gap:6px;flex-wrap:wrap">${det.subjects.slice(0, 3).map(x=>`<span class="tag muted">${esc(x)}</span>`).join("")}</div>` : ""}
       <div class="cta"><button class="btn gold" type="button" id="pv-add">Add to my map</button></div>
       <div class="watch"><b class="sub" style="font-size:15px">Find a copy</b>

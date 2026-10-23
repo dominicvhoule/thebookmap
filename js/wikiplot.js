@@ -75,9 +75,9 @@ MM.subjectSettings = async function(dets){
       if(g.country){
         const p = MM.countryPoint(g.name) || [pt.lon, pt.lat];
         out[MM.bookKey(d)] = {p: invented || country, c:country, cont:"", lat:+p[1].toFixed(3), lon:+p[0].toFixed(3), ap:1,
-          n: invented ? `${invented} is an invented place, so the pin sits in ${country}.` : `Set in ${country}, as the library catalogue records it.`, src:"subjects"};
+          n: invented ? `${invented} is an invented place, so the pin sits in ${country}.` : "", src:"subjects"};
       } else {
-        out[MM.bookKey(d)] = {p:g.name, c:country, cont:"", lat:+pt.lat.toFixed(3), lon:+pt.lon.toFixed(3), ap:0, n:`Set in ${g.name}, as the library catalogue records it.`, src:"subjects"};
+        out[MM.bookKey(d)] = {p:g.name, c:country, cont:"", lat:+pt.lat.toFixed(3), lon:+pt.lon.toFixed(3), ap:0, n:"", src:"subjects"};
       }
       break;
     }
@@ -166,8 +166,65 @@ MM.wikiPlotSetting = async function(det){
     p: label, c: country || "", cont: "",
     lat: +best.lat.toFixed(3), lon: +best.lon.toFixed(3),
     ap: best.country || !fromPlot ? 1 : 0,
-    n: `Set in ${label}, from the book's Wikipedia article.` + (others.length ? ` Also mentions ${others.join(" and ")}.` : ""),
+    n: others.length ? `Other places in the book: ${others.join(" and ")}.` : "",
     src: "wikipedia"
   };
+};
+/* ---------- a short summary of the book ---------- */
+// What the book is about, in two or three sentences: the opening of its encyclopedia article when that
+// describes the story, else the publisher's description, else the start of the plot. Sentences about
+// publication, prizes, sales and adaptations are left out; so are the sources' names.
+const META = /\b(published|publication|publish|reprint|considered|regarded|acclaimed|hailed|bestsell|best-sell|best sell|award|prize|nominat|adapted|adaptation|translated|translation|installments?|instalments?|serial|serialized|edition|sold|copies|praised|critic|review|banned|film|movie|television|miniseries|ranked|greatest|masterpiece|classic|landmark|debut|sequel|trilogy|series of|volume|imprint|publisher|author of|written by|wrote|his (first|second|third|last|final)|her (first|second|third|last|final)|literary|literature|genre|bestseller|nominee|Wikipedia)(s|es|ed|ing)?\b/i;
+const IS_A = /^[^.]{0,160}\b(is|was) an? ([\w-]+ ){0,6}(novel|novella|book|memoir|autobiography|biography|collection|work|story|play|poem|treatise|account|history|study|essay)s?\b/i;
+function sentences(text){
+  const t = String(text || "").replace(/\s*\[[^\]]*\]\([^)]*\)/g, "").replace(/\[(\d+|[a-z])\]/g, "").replace(/\s*\((?:[^()]*?)(?:Russian|French|German|Spanish|Italian|Japanese|Chinese|Swedish|Portuguese|Arabic|Hebrew|IPA|tr\.|lit\.|pronounced|born|died|\d{4}[–-]\d{4})[^()]*\)/g, "")
+    .replace(/[*_]{1,2}([^*_]+)[*_]{1,2}/g, "$1").replace(/\s+/g, " ").trim();
+  const raw = t.split(/(?<=[.!?]["”’)]?)\s+(?=["“(]?[A-Z0-9])/);
+  const out = [];
+  raw.forEach(s=>{ const prev = out[out.length - 1]; if(prev && /\b(Mr|Mrs|Ms|Dr|St|Jr|Sr|vs|Lt|Col|Gen|Sgt|Capt|[A-Z])\.$/.test(prev)) out[out.length - 1] = prev + " " + s; else out.push(s); });
+  return out.map(s=>s.trim()).filter(s=>s.length > 20);
+}
+const english = s => { const w = (" " + s.toLowerCase() + " ").match(/ (the|and|of|to|a|in|is|his|her|who|with|as|for|on) /g); return (w || []).length >= Math.min(4, s.split(" ").length / 8); };
+function story(text, keepIsA){
+  return sentences(text).filter((s,i)=>!META.test(s) && (keepIsA || !IS_A.test(s)));
+}
+function trimTo(list){
+  let out = "";
+  for(const s of list){ if(out && (out + " " + s).length > 430) break; out = out ? out + " " + s : s; if(out.length > 300) break; }
+  return out.length > 430 ? out.slice(0, 427).replace(/\s+\S*$/, "") + "…" : out;
+}
+async function wikiSummaryText(page){
+  const d = await wiki({action:"query", prop:"extracts", explaintext:"1", exsectionformat:"wiki", titles:page, redirects:"1"});
+  const text = (d.query?.pages || [])[0]?.extract || "";
+  const lead = text.split(/\n==[^=]/)[0];
+  const sec = text.match(/\n==\s*(Plot|Plot summary|Synopsis|Summary|Premise|Story|Storyline|Overview|Content|Contents)\s*==\n([\s\S]*?)(?=\n==[^=]|$)/i);
+  return {lead, plot: sec ? sec[2].replace(/\n===[^=]+===\n/g, " ") : ""};
+}
+MM.bookSummary = async function(b){
+  if(!b || !b.t) return "";
+  const k = "bm-sum2:" + MM.bookKey(b);
+  const hit = MM.lsGet(k, null); if(hit !== null) return hit;
+  let det = b;
+  if(!det.ol && !det.qid){ const m = await MM.matchBook(b).catch(()=>null); if(m) det = Object.assign({}, m, {t:b.t, a:b.a}); }
+  if(!det.qid && det.ol){ const q = await MM.qidsForWorks([det.ol]).catch(()=>({})); if(q[det.ol]) det = Object.assign({}, det, {qid:q[det.ol]}); }
+  const [page, ol] = await Promise.all([findArticle(det).catch(()=>null), det.ol ? MM.bookDetails(det).catch(()=>null) : null]);
+  const w = page ? await wikiSummaryText(page).catch(()=>({lead:"", plot:""})) : {lead:"", plot:""};
+  // The publisher's description, unless it's in another language or just a copy of the encyclopedia.
+  const blurb = ol && ol.ov && !/wikipedia/i.test(ol.ov) && english(ol.ov) ? ol.ov : "";
+  const pick = [story(w.lead), story(blurb, true), story(w.plot, true)].find(l=>l.join(" ").length >= 80) || [];
+  const out = trimTo(pick);
+  if(out || page) MM.lsSet(k, out);  // don't remember a miss caused by a failed lookup
+  return out;
+};
+// Setting notes from older versions named their source; keep only what the place line doesn't say.
+MM.cleanNote = function(n, place){
+  let s = String(n || "")
+    .replace(/,?\s*(from|according to) the (book's |)Wikipedia (article|plot summary)\.?/gi, ".")
+    .replace(/,?\s*as the library catalogue records it\.?/gi, ".")
+    .replace(/\s*Also mentions ([^.]+)\./, " Other places in the book: $1.")
+    .replace(/\.\./g, ".").trim();
+  const only = s.match(/^Set in ([^.]+)\.\s*(.*)$/);
+  if(only && MM.norm(place || "").includes(MM.norm(only[1]))) s = only[2].trim();
+  return s;
 };
 })();

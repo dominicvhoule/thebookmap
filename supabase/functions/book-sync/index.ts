@@ -125,7 +125,7 @@ async function fromSubjects(places: string[]): Promise<Setting | null> {
       country = rows[0]?.cLabel?.value ?? ""; isCountry = rows[0]?.c ? qidOf(rows[0].c.value) === hit.item : false;
     }
     return { place: c.name, country: country || c.name, continent: null, lat: hit.lat, lon: hit.lon, approx: isCountry,
-      note: `Set in ${c.name}, as the library catalogue records it.`, source: "subjects" };
+      note: null, source: "subjects" };
   }
   return null;
 }
