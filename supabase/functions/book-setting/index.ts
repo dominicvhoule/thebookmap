@@ -1,13 +1,15 @@
 // BookMap: work out where a book takes place by having Claude read about it.
-// Used only when Wikidata, the library catalogue and Wikipedia's links have no setting. Each answer is
-// saved in book_settings, so a book is looked up once for everyone.
+// Used whenever Wikidata has no specific narrative location. Claude reads the book's descriptions (Google
+// Books, Open Library) and its Wikipedia article. Each answer is saved in book_settings, so a book is looked
+// up once for everyone.
 //
 // Needs these Edge Function secrets (Supabase → Edge Functions → Secrets), shared with MovieMap:
 //   ANTHROPIC_API_KEY   your key from console.anthropic.com
 //   ANTHROPIC_MODEL     optional; defaults to claude-haiku-5-5
+//   GOOGLE_BOOKS_API_KEY  optional; without it Google Books still answers, with a lower daily limit
 // Deploy with "Verify JWT" on, so only signed-in members can call it.
 //
-// POST {key, title, author, year?, qid?, overview?, places?}  →  {setting} or {setting:null, reason}
+// POST {key, title, author, year?, qid?, isbn?, overview?}  →  {setting} or {setting:null, reason}
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -21,6 +23,7 @@ const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
 const MODEL = Deno.env.get("ANTHROPIC_MODEL") || "claude-haiku-5-5";
 const SB_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+const GBOOKS_KEY = Deno.env.get("GOOGLE_BOOKS_API_KEY") ?? "";
 const UA = { "User-Agent": "BookMap/1.0 (+https://dominicvhoule.github.io/thebookmap/)" };
 
 const db = (path: string, init: RequestInit = {}) =>
@@ -55,13 +58,44 @@ async function wikiText(page: string) {
   return (intro.slice(0, 1500) + "\n\n" + setting.slice(0, 2000) + "\n\n" + plot).slice(0, 7000);
 }
 
+// ---------- Google Books ----------
+// The publisher's description, which Google gets from publishers' own catalogue feeds. Found by ISBN when
+// we have one, else by title and author, and only accepted when the title and author match.
+const norm = (s: string) => s.toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "");
+const stripHtml = (s: string) => s.replace(/<br\s*\/?>|<\/p>/gi, "\n").replace(/<[^>]+>/g, "")
+  .replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&nbsp;/g, " ")
+  .replace(/\n{2,}/g, "\n").trim();
+async function googleBooksDescription(isbn: string, title: string, author: string) {
+  const keyParam = GBOOKS_KEY ? `&key=${GBOOKS_KEY}` : "";
+  const get = async (q: string) => {
+    const r = await fetch(`https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(q)}&maxResults=5&printType=books&fields=items(volumeInfo(title,authors,description))${keyParam}`);
+    if (!r.ok) return [];
+    return ((await r.json())?.items ?? []).map((i: { volumeInfo?: Record<string, unknown> }) => i.volumeInfo ?? {});
+  };
+  const want = norm(title.replace(/\s*[:(].*$/, ""));
+  const surname = norm(author.split(/,| & | and /)[0].trim().split(" ").pop() ?? "");
+  const matches = (v: Record<string, unknown>) =>
+    norm(String(v.title ?? "")).startsWith(want) && (!surname || ((v.authors as string[]) ?? []).some((a) => norm(a).includes(surname)));
+  try {
+    let items: Record<string, unknown>[] = [];
+    if (/^[0-9X]{10,13}$/i.test(isbn)) items = (await get(`isbn:${isbn}`)).filter((v: Record<string, unknown>) => v.description);
+    if (!items.length) {
+      const q = `intitle:${title.replace(/\s*[:(].*$/, "")}${surname ? ` inauthor:${author.split(/,| & | and /)[0].trim().split(" ").pop()}` : ""}`;
+      items = (await get(q)).filter((v: Record<string, unknown>) => v.description && matches(v));
+    }
+    // The longest matching description tends to be the full jacket copy rather than a one-liner.
+    const best = items.map((v) => stripHtml(String(v.description))).sort((a, b) => b.length - a.length)[0];
+    return best ? best.slice(0, 2500) : "";
+  } catch { return ""; }
+}
+
 // ---------- Claude ----------
-async function askClaude(title: string, author: string, year: number | null, overview: string, places: string[], wiki: string) {
+async function askClaude(title: string, author: string, year: number | null, gbooks: string, overview: string, wiki: string) {
   const prompt = `You help a website pin each book a reader has finished on a world map at the place where its story takes place.
 
 Book: ${title}${author ? ` by ${author}` : ""}${year ? ` (${year})` : ""}
-Publisher's description: ${overview || "(none)"}
-Library catalogue subject places: ${places.length ? places.join("; ") : "(none)"}
+Publisher's description (Google Books): ${gbooks || "(none)"}
+Open Library description: ${overview && overview !== gbooks ? overview : "(none)"}
 
 Wikipedia text:
 ${wiki || "(none found)"}
@@ -110,10 +144,11 @@ Deno.serve(async (req) => {
   } catch { /* carry on */ }
 
   try {
-    const page = await wikiTitle(clip(b.qid, 20), title, author);
-    const wiki = page ? await wikiText(page) : "";
-    const places = (Array.isArray(b.places) ? b.places : []).map((p) => clip(p, 80)).filter(Boolean).slice(0, 12);
-    const a = await askClaude(title, author, year, clip(b.overview, 1500), places, wiki);
+    const [wiki, gbooks] = await Promise.all([
+      wikiTitle(clip(b.qid, 20), title, author).then((page) => page ? wikiText(page) : "").catch(() => ""),
+      googleBooksDescription(clip(b.isbn, 13).replace(/[^0-9X]/gi, ""), title, author),
+    ]);
+    const a = await askClaude(title, author, year, gbooks, clip(b.overview, 1500), wiki);
     if (!a || a.unknown) return json({ setting: null, reason: "unknown" });
     const lat = Number(a.lat), lon = Number(a.lon);
     if (!isFinite(lat) || !isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) return json({ setting: null, reason: "bad_answer" });

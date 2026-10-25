@@ -1609,7 +1609,7 @@ async function moveLocalBooks(){
 let aiState = "unknown";   // unknown | on | off
 async function aiFor(d){
   if(aiState === "off" || !cloud()) return null;
-  const {data, error} = await sb.functions.invoke("book-setting", {body:{key:MM.bookKey(d), title:d.t, author:d.a || "", year:d.y || null, qid:d.qid || null, overview:d.ov || "", places:(d.places || []).slice(0, 12)}});
+  const {data, error} = await sb.functions.invoke("book-setting", {body:{key:MM.bookKey(d), title:d.t, author:d.a || "", year:d.y || null, qid:d.qid || null, isbn:isbnOk(d.isbn13) || isbnOk(d.isbn) || null, overview:d.ov || ""}});
   if(error){
     const status = error.context && error.context.status;
     if(!status || status === 404 || error.name === "FunctionsFetchError" || error.name === "FunctionsRelayError") aiState = "off";
