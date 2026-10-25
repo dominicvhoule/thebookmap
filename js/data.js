@@ -330,14 +330,19 @@ MM.curated = function(det){
   return f ? {p:f.p, c:f.c, cont:f.cont || "", lat:f.lat, lon:f.lon, ap:f.ap ? 1 : 0, n:f.n || "", src:"curated"} : null;
 };
 
-// Resolve books (summaries with ol/qid/places) to settings. Steps, cheapest first:
-// 1 hand-checked → 2 cached (this browser, then shared) → 3 Wikidata narrative location → 4 the library
-// catalogue's subject places → 5 places linked in the Wikipedia plot → 6 AI, if switched on → 7 the author's country.
+// Resolve books (summaries with ol/qid) to settings. Steps:
+// 1 hand-checked → 2 cached (this browser, then shared) → 3 Wikidata narrative location → 4 AI, if switched on
+// (it reads the Google Books and Open Library descriptions and the Wikipedia article) → 5 a country Wikidata
+// recorded → 6 the author's country.
+// Open Library's subject places and the Wikipedia link-scoring are no longer used to pick pins: they mixed up
+// "what the book is about" with "where it's set" (e.g. pinning a memoir to the Challenger disaster).
+// Pins they chose earlier are treated as weak, so they're redone by AI once it's available.
+const RETIRED = ["subjects", "wikipedia"];
 MM.resolveSettings = async function(dets, onStep){
   const keyOf = d => MM.bookKey(d);
   const curated = new Map();
   dets.forEach(d=>{ if(!d) return; const c = MM.curated(d); if(c) curated.set(keyOf(d), c); });
-  const weakCached = s => s && s.src === "author" && ((MM.wikiPlotSetting && !s.wikiTried) || (MM.aiSetting && !s.aiTried));
+  const weakCached = s => s && MM.aiSetting && ((s.src === "author" && !s.aiTried) || (RETIRED.includes(s.src) && !s.aiTried));
   const isNeeded = d => d && !curated.has(keyOf(d)) && (!MM.settingCache.get(keyOf(d)) || weakCached(MM.settingCache.get(keyOf(d))));
   let need = dets.filter(isNeeded);
   if(MM.remoteSettings && need.length){
@@ -345,7 +350,7 @@ MM.resolveSettings = async function(dets, onStep){
     need = need.filter(isNeeded);
   }
   const fresh = {};
-  const put = (d, s) => { MM.settingCache.put(keyOf(d), s); if(["wikidata","subjects","wikipedia"].includes(s.src)) fresh[keyOf(d)] = s; };
+  const put = (d, s) => { MM.settingCache.put(keyOf(d), s); if(s.src === "wikidata") fresh[keyOf(d)] = s; };
   if(need.length){
     // Wikidata items: from Open Library's own link, else through the work's Open Library id.
     const missing = need.filter(d=>!d.qid && d.ol);
@@ -353,23 +358,20 @@ MM.resolveSettings = async function(dets, onStep){
     const wd = await MM.wikidataSettings(need.map(d=>d.qid));
     const rest = [];
     need.forEach(d=>{ const w = d.qid && wd[d.qid]; if(w && !w.ap) put(d, w); else { if(w) d.wdCountry = w; rest.push(d); } });
-    // The catalogue's subject places, all books at once.
-    const subj = MM.subjectSettings ? await MM.subjectSettings(rest).catch(()=>({})) : {};
-    const rest2 = [];
-    rest.forEach(d=>{ const s = subj[keyOf(d)]; if(s && !s.ap) put(d, s); else { d.subjCountry = s || null; rest2.push(d); } });
-    // Authors' countries for the last resort, all at once.
-    const ac = await MM.authorCountries(rest2.map(d=>d.qid).filter(Boolean));
-    rest2.forEach(d=>{ d.authorCountries = (d.qid && ac[d.qid]) || []; });
+    // Authors' countries for the last resort, all at once: by Wikidata item, else by the author's name.
+    const ac = await MM.authorCountries(rest.map(d=>d.qid).filter(Boolean)).catch(()=>({}));
+    const byName = await MM.writerCountriesByName(rest.filter(d=>!(d.qid && (ac[d.qid] || []).length)).map(d=>d.a || "")).catch(()=>({}));
+    rest.forEach(d=>{ d.authorCountries = (d.qid && ac[d.qid] && ac[d.qid].length) ? ac[d.qid] : (byName[String(d.a || "").split(" & ")[0].trim()] || []); });
     let done = 0;
-    await MM.pool(rest2, 2, async d=>{
+    await MM.pool(rest, 2, async d=>{
       let s = null;
-      if(MM.wikiPlotSetting){ try{ s = await MM.wikiPlotSetting(d); }catch(e){} }
-      if(s && s.ap && (d.wdCountry || d.subjCountry)) s = null;       // a recorded country beats a guess from the plot
-      if(!s && MM.aiSetting){ try{ s = await MM.aiSetting(d); }catch(e){} }
-      if(!s) s = d.wdCountry || d.subjCountry || null;
-      if(!s){ s = MM.fallbackSetting(d); if(s) s = Object.assign({}, s, {wikiTried: MM.wikiPlotSetting ? 1 : 0, aiTried: MM.aiSetting ? 1 : 0}); }
+      if(MM.aiSetting){ try{ s = await MM.aiSetting(d); }catch(e){} }
+      if(!s) s = d.wdCountry || null;
+      if(!s){ s = MM.fallbackSetting(d); if(s) s = Object.assign({}, s, {aiTried: MM.aiSetting ? 1 : 0}); }
+      // Keep an old pin rather than losing it when nothing better turned up.
+      if(!s){ const old = MM.settingCache.get(keyOf(d)); if(old) s = Object.assign({}, old, {aiTried: MM.aiSetting ? 1 : 0}); }
       if(s) put(d, s);
-      done++; if(onStep) onStep(done, rest2.length);
+      done++; if(onStep) onStep(done, rest.length);
     });
   }
   if(MM.saveRemoteSettings && Object.keys(fresh).length){ try{ await MM.saveRemoteSettings(fresh); }catch(e){} }
