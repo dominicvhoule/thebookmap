@@ -200,21 +200,40 @@ async function wikiSummaryText(page){
   const sec = text.match(/\n==\s*(Plot|Plot summary|Synopsis|Summary|Premise|Story|Storyline|Overview|Content|Contents)\s*==\n([\s\S]*?)(?=\n==[^=]|$)/i);
   return {lead, plot: sec ? sec[2].replace(/\n===[^=]+===\n/g, " ") : ""};
 }
+// What a book is about: {text, source:"wikipedia"|"ai"|"", page}. Worked out once per book on the server
+// (book-summary function) and saved for everyone: the story sentences of its Wikipedia article when it has
+// one (credited on the card), otherwise a summary Claude writes in its own words. If the server isn't
+// reachable, the Wikipedia part runs here in the browser instead.
+MM.summaryServer = null;   // set by app.js: (body) => Promise<{summary, source, page}>
 MM.bookSummary = async function(b){
-  if(!b || !b.t) return "";
-  const k = "bm-sum2:" + MM.bookKey(b);
+  if(!b || !b.t) return {text:"", source:""};
+  const k = "bm-sum3:" + MM.bookKey(b);
   const hit = MM.lsGet(k, null); if(hit !== null) return hit;
   let det = b;
   if(!det.ol && !det.qid){ const m = await MM.matchBook(b).catch(()=>null); if(m) det = Object.assign({}, m, {t:b.t, a:b.a}); }
   if(!det.qid && det.ol){ const q = await MM.qidsForWorks([det.ol]).catch(()=>({})); if(q[det.ol]) det = Object.assign({}, det, {qid:q[det.ol]}); }
-  const [page, ol] = await Promise.all([findArticle(det).catch(()=>null), det.ol ? MM.bookDetails(det).catch(()=>null) : null]);
-  const w = page ? await wikiSummaryText(page).catch(()=>({lead:"", plot:""})) : {lead:"", plot:""};
-  // The publisher's description, unless it's in another language or just a copy of the encyclopedia.
-  const blurb = ol && ol.ov && !/wikipedia/i.test(ol.ov) && english(ol.ov) ? ol.ov : "";
-  const pick = [story(w.lead), story(blurb, true), story(w.plot, true)].find(l=>l.join(" ").length >= 80) || [];
-  const out = trimTo(pick);
-  if(out || page) MM.lsSet(k, out);  // don't remember a miss caused by a failed lookup
+  const page = await findArticle(det).catch(()=>null);
+  let out = null;
+  if(MM.summaryServer){
+    try{
+      const r = await MM.summaryServer({key:MM.bookKey(b), title:b.t, author:b.a || "", year:+b.y || null, ol:det.ol || "", page:page || ""});
+      if(r && typeof r.summary === "string") out = {text:r.summary, source:r.summary ? r.source : "", page:r.page || null};
+    }catch(e){}
+  }
+  if(!out && page){
+    const w = await wikiSummaryText(page).catch(()=>({lead:"", plot:""}));
+    const text = trimTo([story(w.lead), story(w.plot, true)].find(l=>l.join(" ").length >= 80) || []);
+    out = {text, source:text ? "wikipedia" : "", page};
+  }
+  out = out || {text:"", source:""};
+  if(out.text || page) MM.lsSet(k, out);   // don't remember a miss caused by a failed lookup
   return out;
+};
+// The credit Wikipedia's licence asks for, shown under a summary taken from an article.
+MM.summaryCredit = function(sum){
+  if(!sum || sum.source !== "wikipedia" || !sum.page) return "";
+  const url = "https://en.wikipedia.org/wiki/" + encodeURIComponent(String(sum.page).replace(/ /g, "_"));
+  return `From Wikipedia's article <a href="${url}" target="_blank" rel="noopener">${String(sum.page).replace(/[&<>"]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]))}</a> (<a href="https://creativecommons.org/licenses/by-sa/4.0/" target="_blank" rel="noopener">CC BY-SA 4.0</a>), adapted.`;
 };
 // Setting notes from older versions named their source; keep only what the place line doesn't say.
 MM.cleanNote = function(n, place){

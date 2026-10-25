@@ -85,6 +85,7 @@ if(sb){
       .then(({error})=>{ if(error && /book_matches/.test(error.message || "")) matchesTable = false; }, ()=>{});
   };
   MM.aiSetting = null;   // switched on after sign-in, once the function answers
+  MM.summaryServer = body => sb.functions.invoke("book-summary", {body}).then(({data, error})=>{ if(error) throw error; return data; });
   MM.saveRemoteSettings = async map => {
     if(!session || !booksReady) return;
     const rows = Object.keys(map).map(k=>{ const s = map[k]; return {book_key:k, place:s.p ? String(s.p).slice(0, 200) : null, country:s.c || null, continent:s.cont||null, lat:s.lat, lon:s.lon, approx:!!s.ap, note:s.n ? String(s.n).slice(0, 500) : null, source:s.src}; });
@@ -498,7 +499,7 @@ const loadImg = url => !url ? Promise.resolve(null) : new Promise(res=>{ const i
 // Everything a book card shows, fetched before the card appears (each part gives up after a few seconds).
 async function cardParts(b){
   const cover = (async()=>loadImg(b.coverId ? MM.coverURL(b, "L") : await coverOf(b, "L")))().catch(()=>null);
-  const [url, sum] = await Promise.all([timeout(cover, 5000), timeout(MM.bookSummary(b).catch(()=>""), 5000)]);
+  const [url, sum] = await Promise.all([timeout(cover, 5000), timeout(MM.bookSummary(b).catch(()=>null), 5000)]);
   return {url, sum};
 }
 async function openBook(f, fly){
@@ -516,7 +517,7 @@ async function openBook(f, fly){
     <div class="body">
       <div><div class="place">${esc(placeLine(f))}</div><div class="coord">${fmtCoord(f.lat, f.lon)}</div></div>
       ${note ? `<p class="note">${esc(note)}</p>` : ""}
-      <p class="ov" id="d-sum"${sum ? "" : " hidden"}>${esc(sum || "")}</p>
+      <div id="d-sum">${sumHTML(sum)}</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">${f.r ? `<span class="stars">${stars(f.r)}</span>` : ""}${f.rv ? '<span class="tag">Reviewed</span>' : ""}${f.rc > 1 ? `<span class="tag">Read ${f.rc} times</span>` : ""}${f.ap ? '<span class="tag ap">Approx. setting</span>' : ""}${f.read ? `<span class="tag muted">Read ${esc(fmtDay(f.read))}</span>` : ""}</div>
       ${mine ? `<div class="cta"><button class="btn ghost small" id="d-move">Move pin</button><button class="btn ghost small" id="d-del">Remove</button></div>` : ""}
       <div class="links"><a class="linkbtn" href="${esc(MM.goodreadsPage(f))}" target="_blank" rel="noopener">Goodreads ↗</a>${f.ol ? `<a class="linkbtn" href="${esc(MM.olPage(f))}" target="_blank" rel="noopener">Open Library ↗</a>` : ""}</div>
@@ -524,7 +525,7 @@ async function openBook(f, fly){
     </div>`;
   detail.hidden = false; detail.scrollTop = 0;
   detail.querySelector(".x").onclick = closeDetail;
-  if(!sum) fillSummary(f, token);   // only if it was too slow to wait for
+  if(!(sum && sum.text)) fillSummary(f, token);   // only if it was too slow to wait for
   // Suggestions only load when asked for, which also keeps opening a card quick.
   const moreBtn = detail.querySelector("#d-more-btn");
   if(moreBtn) moreBtn.onclick = ()=>{ moreBtn.disabled = true; moreBtn.textContent = "Finding books like this…";
@@ -566,10 +567,12 @@ function shopLink(shop, b){
   }[shop];
 }
 // The story summary can take a few lookups, so the card opens first and the summary appears when it's ready.
+// A summary, with Wikipedia's credit line when it came from an article.
+const sumHTML = sum => sum && sum.text ? `<p class="ov">${esc(sum.text)}</p>${MM.summaryCredit(sum) ? `<p class="sumcredit">${MM.summaryCredit(sum)}</p>` : ""}` : "";
 function fillSummary(b, token){
-  MM.bookSummary(b).catch(()=>"").then(sum=>{
+  MM.bookSummary(b).catch(()=>null).then(sum=>{
     const el = token === openToken && detail.querySelector("#d-sum");
-    if(el && sum){ el.textContent = sum; el.hidden = false; }
+    if(el && sum && sum.text) el.innerHTML = sumHTML(sum);
   });
 }
 async function openPreview(m, from){
@@ -585,7 +588,7 @@ async function openPreview(m, from){
     <div class="body">
       ${from ? `<button type="button" class="back" id="pv-back" style="margin:0">← Back to ${esc(from.t)}</button>` : ""}
       ${s ? `<div><div class="place">${esc(placeLine({p:s.p, c:s.c}))}</div>${note ? `<p class="note" style="margin:6px 0 0">${esc(note)}</p>` : ""}</div>` : `<p class="hint" style="margin:0">We couldn't find where this one is set.</p>`}
-      <p class="ov" id="d-sum"${parts.sum ? "" : " hidden"}>${esc(parts.sum || "")}</p>
+      <div id="d-sum">${sumHTML(parts.sum)}</div>
       ${det.subjects && det.subjects.length ? `<div style="display:flex;gap:6px;flex-wrap:wrap">${det.subjects.slice(0, 3).map(x=>`<span class="tag muted">${esc(x)}</span>`).join("")}</div>` : ""}
       <div class="cta"><button class="btn gold" type="button" id="pv-add">Add to my map</button></div>
       <div class="watch"><b class="sub" style="font-size:15px">Find a copy</b>
@@ -599,7 +602,7 @@ async function openPreview(m, from){
   detail.hidden = false; detail.scrollTop = 0;
   detail.querySelector(".x").onclick = closeDetail;
   const back = $("#pv-back"); if(back) back.onclick = ()=>{ preview = null; openBook(from, true); };
-  if(!parts.sum) fillSummary(det, token);
+  if(!(parts.sum && parts.sum.text)) fillSummary(det, token);
   $("#pv-add").onclick = ()=>{ preview = null; pendingLog = {ol:det.ol, t:det.t, a:det.a, y:det.y, coverId:det.coverId, qid:det.qid, places:det.places}; location.hash = "#/log"; };
 }
 function closeDetail(){ preview = null; openToken++; detail.hidden = true; selected = null; renderPins(); markListSelection(); }

@@ -26,6 +26,7 @@ Live at **https://dominicvhoule.github.io/thebookmap/**
 | Optional AI step | Claude reads the Wikipedia article and catalogue entry (`book-setting` function, needs an API key) |
 | Last resort | The author's country (Wikidata), marked approximate |
 | Cover images | Your own Cloudflare Worker and R2 bucket (`cloudflare/covers-worker.js`): each cover is fetched from Open Library once, then always served from R2 |
+| Book summaries | The book's Wikipedia article when it has one (story sentences, credited "From Wikipedia's article … (CC BY-SA 4.0), adapted"); otherwise Claude writes one in its own words (`book-summary` function, needs `ANTHROPIC_API_KEY`). Saved once per book in `book_summaries` |
 | Base map | [OpenFreeMap](https://openfreemap.org/) tiles (OpenStreetMap data) drawn with [MapLibre](https://maplibre.org/) |
 | Accounts, maps, follows | [Supabase](https://supabase.com/), the same project as MovieMap |
 
