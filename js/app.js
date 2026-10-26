@@ -590,12 +590,14 @@ async function openBook(f, fly){
       <div id="d-sum">${sumHTML(sum)}</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">${f.r ? `<span class="stars">${stars(f.r)}</span>` : ""}${f.rv ? '<span class="tag">Reviewed</span>' : ""}${f.rc > 1 ? `<span class="tag">Read ${f.rc} times</span>` : ""}${f.ap ? '<span class="tag ap">Approx. setting</span>' : ""}${f.read ? `<span class="tag muted">Read ${esc(fmtDay(f.read))}</span>` : ""}</div>
       ${mine ? `<div class="cta"><button class="btn ghost small" id="d-move">Move pin</button><button class="btn ghost small" id="d-del">Remove</button></div>` : (onMyMap(f) ? "" : `<div class="cta">${wantBtn(f)}</div>`)}
+      <div id="d-comm"></div>
       <div id="d-more"><button type="button" class="btn ghost small" id="d-more-btn">See more like this</button></div>
     </div>`;
   detail.hidden = false; detail.scrollTop = 0;
   detail.querySelector(".x").onclick = closeDetail;
   if(!(sum && sum.text)) fillSummary(f, token);
-  bindWant(f);   // only if it was too slow to wait for
+  bindWant(f);
+  fillCommunity(f, token, mine);
   // Suggestions only load when asked for, which also keeps opening a card quick.
   const moreBtn = detail.querySelector("#d-more-btn");
   if(moreBtn) moreBtn.onclick = ()=>{ moreBtn.disabled = true; moreBtn.textContent = "Finding books like this…";
@@ -667,6 +669,7 @@ async function openPreview(m, from){
       <div id="d-sum">${sumHTML(parts.sum)}</div>
       ${det.subjects && det.subjects.length ? `<div style="display:flex;gap:6px;flex-wrap:wrap">${det.subjects.slice(0, 3).map(x=>`<span class="tag muted">${esc(x)}</span>`).join("")}</div>` : ""}
       <div class="cta"><button class="btn gold" type="button" id="pv-add">Add to my map</button>${wantBtn(det)}</div>
+      <div id="d-comm"></div>
       <div class="watch"><b class="sub" style="font-size:15px">Find a copy</b>
         <div class="shops">
           <a href="${esc(shopLink("bookshop", det))}" target="_blank" rel="noopener sponsored">Bookshop.org ↗</a>
@@ -678,7 +681,55 @@ async function openPreview(m, from){
   const back = $("#pv-back"); if(back) back.onclick = ()=>{ preview = null; openBook(from, true); };
   if(!(parts.sum && parts.sum.text)) fillSummary(det, token);
   bindWant(det);
+  fillCommunity(det, token, false);
   $("#pv-add").onclick = ()=>{ preview = null; pendingLog = {ol:det.ol, t:det.t, a:det.a, y:det.y, coverId:det.coverId, qid:det.qid, places:det.places}; location.hash = "#/log"; };
+}
+/* ---------- community: what TheBookMap's readers think of a book ---------- */
+// Average of every reader's rating on their map, how the ratings spread, and readers' reviews (book_reviews).
+// On a book that's on your own map you can write, edit or delete your review; it shows with your stars.
+const fmtWhen = t => { const d = new Date(t); return isNaN(+d) ? "" : d.toLocaleDateString([], {day:"numeric", month:"short", year:"numeric"}); };
+async function fillCommunity(b, token, mine){
+  const box = detail.querySelector("#d-comm"); if(!box || !sb) return;
+  const key = MM.bookKey(b);
+  let c = null;
+  try{ const {data, error} = await sb.rpc("book_community", {p_key:key, p_limit:50}); if(error) throw error; c = data; }catch(e){ return; }
+  if(token !== openToken || !detail.contains(box) || !c) return;
+  const reviews = c.reviews || [];
+  const myReview = me ? reviews.find(r=>r.username === me.username) : null;
+  const others = reviews.filter(r=>r !== myReview);
+  const n = c.ratings || 0, max = Math.max(1, ...(c.spread || [0]));
+  const reviewLi = r => `<li><div class="rv-h"><a href="#/u/${encodeURIComponent(r.username)}">${esc(r.name)}</a>${r.rating ? ` <span class="stars">${stars(r.rating)}</span>` : ""}<span class="rv-d">${esc(fmtWhen(r.at))}</span></div><p class="rv-b">${esc(r.body)}</p></li>`;
+  const SHOW = 3;
+  box.innerHTML = `<div class="comm">
+    <b class="sub" style="font-size:15px">What readers think</b>
+    ${n ? `<div class="comm-top"><span class="avg">${Number(c.average).toFixed(1)}</span><span class="stars">${stars(c.average)}</span><span class="hint">${n} rating${n===1?"":"s"} · ${c.review_count} review${c.review_count===1?"":"s"} on TheBookMap</span></div>
+      <div class="spread">${[5,4,3,2,1].map(k=>{ const v = (c.spread || [])[k-1] || 0; return `<div><span>${k} ★</span><i><b style="width:${Math.round(v * 100 / max)}%"></b></i><em>${v}</em></div>`; }).join("")}</div>`
+      : `<p class="hint" style="margin:0">No ratings on TheBookMap yet.${mine ? " Rate it and write the first review." : ""}</p>`}
+    ${mine && me ? `<div class="myrev">
+      <label for="rv-t" class="sub" style="font-size:14px">${myReview ? "Your review" : "Write a review"}</label>
+      <textarea id="rv-t" maxlength="5000" rows="4" placeholder="What did you think? Others will see this with your name and stars.">${esc(myReview ? myReview.body : "")}</textarea>
+      <div class="cta"><button type="button" class="btn small" id="rv-save">${myReview ? "Save changes" : "Post review"}</button>${myReview ? `<button type="button" class="btn ghost small" id="rv-del">Delete</button>` : ""}<span class="hint" id="rv-msg"></span></div>
+    </div>` : ""}
+    ${others.length ? `<ul class="reviews">${others.map((r,i)=>i < SHOW ? reviewLi(r) : "").join("")}</ul>${others.length > SHOW ? `<button type="button" class="linkbtn" id="rv-all">Show all ${others.length} reviews</button>` : ""}` : ""}
+  </div>`;
+  const all = box.querySelector("#rv-all");
+  if(all) all.onclick = ()=>{ box.querySelector(".reviews").innerHTML = others.map(reviewLi).join(""); all.remove(); };
+  const save = box.querySelector("#rv-save");
+  if(save) save.onclick = async ()=>{
+    const body = box.querySelector("#rv-t").value.trim(), msg = box.querySelector("#rv-msg");
+    if(!body){ msg.textContent = "Write something first."; return; }
+    save.disabled = true; msg.textContent = "";
+    const {error} = await sb.from("book_reviews").upsert({user_id:me.id, book_key:key, body, updated_at:new Date().toISOString()}, {onConflict:"user_id,book_key"});
+    if(error){ save.disabled = false; msg.textContent = "Couldn't save. Try again."; return; }
+    toast(myReview ? "Review updated" : "Review posted"); fillCommunity(b, token, mine);
+  };
+  const del = box.querySelector("#rv-del");
+  if(del) del.onclick = async ()=>{
+    if(del.dataset.armed !== "1"){ del.dataset.armed = "1"; del.textContent = "Tap again to delete"; return; }
+    const {error} = await sb.from("book_reviews").delete().eq("user_id", me.id).eq("book_key", key);
+    if(error){ toast("Couldn't delete it. Try again."); return; }
+    toast("Review deleted"); fillCommunity(b, token, mine);
+  };
 }
 function closeDetail(){ preview = null; openToken++; detail.hidden = true; selected = null; renderPins(); markListSelection(); }
 

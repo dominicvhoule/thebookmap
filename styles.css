@@ -366,3 +366,23 @@ a{color:var(--pin);text-underline-offset:2px}
 #loghead button span{font-family:var(--f-mono);font-style:normal;font-size:12px;font-weight:500;color:var(--muted);margin-left:2px}
 .lists{display:contents}
 .btn.want.on{border-color:var(--gold);color:var(--ink);background:color-mix(in srgb,var(--gold) 14%,transparent)}
+
+/* community ratings and reviews */
+.comm{display:grid;gap:10px;border-top:1px solid var(--line);padding-top:12px}
+.comm-top{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.comm-top .avg{font-family:var(--f-display);font-weight:700;font-size:30px;line-height:1}
+.comm-top .hint{margin:0;font-size:12.5px}
+.spread{display:grid;gap:3px}
+.spread div{display:grid;grid-template-columns:30px 1fr 28px;gap:8px;align-items:center;font-family:var(--f-mono);font-size:11px;color:var(--muted)}
+.spread i{display:block;height:8px;background:var(--paper);border:1px solid var(--line)}
+.spread i b{display:block;height:100%;background:var(--gold)}
+.spread em{font-style:normal;text-align:right}
+.myrev{display:grid;gap:6px}
+.myrev textarea{width:100%;padding:8px 10px;border:1px solid var(--line);background:var(--paper);font:inherit;font-size:14px;line-height:1.5;resize:vertical}
+.myrev .cta{align-items:center}
+.reviews{list-style:none;margin:0;padding:0;display:grid;gap:12px}
+.reviews li{border-top:1px solid var(--line);padding-top:10px}
+.rv-h{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;font-size:14px}
+.rv-h a{font-weight:600;color:var(--ink)}
+.rv-d{margin-left:auto;font-family:var(--f-mono);font-size:10.5px;color:var(--muted)}
+.rv-b{margin:4px 0 0;font-size:14px;line-height:1.55;white-space:pre-line;display:-webkit-box;-webkit-line-clamp:8;-webkit-box-orient:vertical;overflow:hidden}
