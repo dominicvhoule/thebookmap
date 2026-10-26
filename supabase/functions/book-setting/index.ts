@@ -1,7 +1,8 @@
 // BookMap: work out where a book takes place by having Claude read about it.
-// Used whenever Wikidata has no specific narrative location. Claude reads the book's descriptions (Google
-// Books, Open Library) and its Wikipedia article. Each answer is saved in book_settings, so a book is looked
-// up once for everyone.
+// Used whenever Wikidata has no specific narrative location. Claude answers from what it knows about the
+// book, plus the book's descriptions (Google Books, Open Library). Wikipedia text is not sent: it made
+// prompts bigger and, when the search found the wrong article, misled Claude. Each answer is saved in
+// book_settings, so a book is looked up once for everyone.
 //
 // The same call also writes the book's card summary (into book_summaries) when the book has no Wikipedia
 // article to take one from, so a book never needs two Claude calls.
@@ -106,18 +107,6 @@ async function wikiTitle(qid: string, title: string, author: string) {
     return hits.map((h) => h.title).find((t) => sameTitle(t, title)) ?? null;
   } catch { return null; }
 }
-async function wikiText(page: string) {
-  const r = await fetch(`https://en.wikipedia.org/w/api.php?action=query&prop=extracts&explaintext=1&redirects=1&format=json&titles=${encodeURIComponent(page)}`, { headers: UA });
-  const pages = (await r.json())?.query?.pages ?? {};
-  const text: string = (Object.values(pages)[0] as { extract?: string })?.extract ?? "";
-  if (!text) return "";
-  const pick = (re: RegExp) => (text.match(re) ?? [])[2] ?? "";
-  const setting = pick(/\n==\s*(Setting)\s*==\n([\s\S]*?)(?=\n==[^=]|$)/i);
-  const plot = pick(/\n==\s*(Plot|Plot summary|Synopsis|Summary|Story|Premise|Overview)\s*==\n([\s\S]*?)(?=\n==[^=]|$)/i);
-  const intro = text.split(/\n==/)[0];
-  return (intro.slice(0, 1500) + "\n\n" + setting.slice(0, 2000) + "\n\n" + plot).slice(0, 7000);
-}
-
 // Does this book already have a card summary, or a Wikipedia article book-summary can take one from for free?
 const sameTitle = (page: string, title: string) => {
   const base = norm(page.replace(/\s*\([^)]*\)\s*$/, "")), want = norm(title.replace(/\s*[:;(].*$/, ""));
@@ -165,17 +154,14 @@ async function googleBooksDescription(isbn: string, title: string, author: strin
 }
 
 // ---------- Claude ----------
-async function askClaude(title: string, author: string, year: number | null, gbooks: string, overview: string, wiki: string, wantSummary: boolean) {
+async function askClaude(title: string, author: string, year: number | null, gbooks: string, overview: string, wantSummary: boolean) {
   const prompt = `You help a website pin each book a reader has finished on a world map at the place where its story takes place.
 
 Book: ${title}${author ? ` by ${author}` : ""}${year ? ` (${year})` : ""}
 Publisher's description (Google Books): ${gbooks || "(none)"}
 Open Library description: ${overview && overview !== gbooks ? overview : "(none)"}
 
-Wikipedia text:
-${wiki || "(none found)"}
-
-Where does this book mainly take place? For fiction, use the setting inside the story, not where the author lived. For nonfiction (history, travel, memoir, biography, reportage), use the place it is mainly about. If it moves around, choose the place where most of it happens.
+Use what you know about this book as well as the descriptions. Where does this book mainly take place? For fiction, use the setting inside the story, not where the author lived. For nonfiction (history, travel, memoir, biography, reportage), use the place it is mainly about. If it moves around, choose the place where most of it happens.
 
 Reply with only a JSON object:
 {"place": "most specific place where most of the book happens (a city, town, region, or an invented place's name)",
@@ -227,13 +213,12 @@ Deno.serve(async (req) => {
         wikiTitle(clip(b.qid, 20), title, author).catch(() => null),
         googleBooksDescription(clip(b.isbn, 13).replace(/[^0-9X]/gi, ""), title, author),
       ]);
-      const wiki = page ? await wikiText(page).catch(() => "") : "";
       const wantSummary = b.with_summary === true;
-      const asked = await askClaude(title, author, year, gbooks, clip(b.overview, 1500), wiki, wantSummary);
+      const asked = await askClaude(title, author, year, gbooks, clip(b.overview, 1500), wantSummary);
       await logCall({ fn: "book-setting-replay", book_key: key, result: asked.broken ? "error" : asked.answer?.unknown ? "unknown" : "ok",
         raw: asked.raw, ...asked.usage });
       return json({ raw: asked.raw, stop_reason: asked.stop_reason, usage: asked.usage, with_summary: wantSummary,
-        inputs: { wikipedia_page: page, wikipedia_chars: wiki.length, google_books_chars: gbooks.length, open_library_chars: clip(b.overview, 1500).length } });
+        inputs: { wikipedia_page: page, google_books_chars: gbooks.length, open_library_chars: clip(b.overview, 1500).length } });
     } catch (e) {
       return json({ error: String((e as Error).message || "failed") }, 500);
     }
@@ -271,13 +256,12 @@ Deno.serve(async (req) => {
       wikiTitle(clip(b.qid, 20), title, author).catch(() => null),
       googleBooksDescription(clip(b.isbn, 13).replace(/[^0-9X]/gi, ""), title, author),
     ]);
-    const [wiki, wantSummary] = await Promise.all([
-      page ? wikiText(page).catch(() => "") : Promise.resolve(""),
-      summaryNeeded(key, page, title),
-    ]);
+    // The book's own Wikipedia article, if it has one, only decides whether a card summary is needed
+    // (book-summary takes one from the article for free).
+    const wantSummary = await summaryNeeded(key, page, title);
     let asked;
     try {
-      asked = await askClaude(title, author, year, gbooks, clip(b.overview, 1500), wiki, wantSummary);
+      asked = await askClaude(title, author, year, gbooks, clip(b.overview, 1500), wantSummary);
     } catch (e) {
       await logCall({ book_key: key, user_id: uid, result: "error" });
       throw e;
