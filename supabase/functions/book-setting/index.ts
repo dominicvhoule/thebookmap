@@ -9,7 +9,9 @@
 // Protections against running up the bill (every call is logged in ai_calls):
 //   - only books that are on someone's map or in the shared catalogue are looked up;
 //   - at most DAILY_CAP calls a day site-wide and USER_DAILY_CAP per reader;
-//   - a book Claude couldn't place isn't asked about again for UNKNOWN_RETRY_DAYS.
+//   - a book Claude couldn't place is never asked about again (a second try would cost money and say the same);
+//   - a call that produced no usable answer (cut off, not JSON) is retried, but a book gets at most
+//     MAX_FAILED_TRIES failed calls in total.
 //
 // Needs these Edge Function secrets (Supabase → Edge Functions → Secrets), shared with MovieMap:
 //   ANTHROPIC_API_KEY   your key from console.anthropic.com
@@ -34,7 +36,7 @@ const SERVICE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const GBOOKS_KEY = Deno.env.get("GOOGLE_BOOKS_API_KEY") ?? "";
 const DAILY_CAP = 3000;          // about $1.20 a day at most
 const USER_DAILY_CAP = 400;      // enough for one reader importing a long Goodreads history
-const UNKNOWN_RETRY_DAYS = 30;
+const MAX_FAILED_TRIES = 2;
 const UA = { "User-Agent": "BookMap/1.0 (+https://dominicvhoule.github.io/thebookmap/)" };
 
 const db = (path: string, init: RequestInit = {}) =>
@@ -179,8 +181,8 @@ For the summary: write entirely in your own words in English and don't copy phra
   const m = text.match(/\{[\s\S]*\}/);
   let answer: Record<string, unknown> | null = null;
   try { answer = m ? JSON.parse(m[0]) : null; } catch { answer = null; }
-  // A reply cut off by the length limit, or one that isn't JSON, is a failed call (retried later), not an
-  // "unknown" (which stops the book being asked about for UNKNOWN_RETRY_DAYS).
+  // A reply cut off by the length limit, or one that isn't JSON, is a failed call (retried, up to
+  // MAX_FAILED_TRIES in total), not an "unknown" (which stops the book being asked about for good).
   const broken = res?.stop_reason === "max_tokens" || !answer;
   return { answer: broken ? null : answer, broken, usage: { in_tokens: res?.usage?.input_tokens ?? null, out_tokens: res?.usage?.output_tokens ?? null } };
 }
@@ -211,7 +213,11 @@ Deno.serve(async (req) => {
   const uid = userId(req);
   try {
     if (!(await knownBook(key))) return json({ setting: null, reason: "not_on_a_map" });
-    if (await countCalls(`book_key=eq.${encodeURIComponent(key)}&result=eq.unknown&created_at=gte.${since(UNKNOWN_RETRY_DAYS)}`)) {
+    if (await countCalls(`book_key=eq.${encodeURIComponent(key)}&result=eq.unknown`)) {
+      return json({ setting: null, reason: "unknown", cached: true });
+    }
+    // Only failed calls that were billed (had output) count; an outage at Anthropic costs nothing.
+    if ((await countCalls(`book_key=eq.${encodeURIComponent(key)}&result=eq.error&out_tokens=gt.0`)) >= MAX_FAILED_TRIES) {
       return json({ setting: null, reason: "unknown", cached: true });
     }
     if ((await countCalls(`created_at=gte.${since(1)}`)) >= DAILY_CAP) return json({ setting: null, reason: "daily_cap" });
