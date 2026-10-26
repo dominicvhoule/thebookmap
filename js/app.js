@@ -1613,7 +1613,18 @@ async function moveLocalBooks(){
   }catch(e){}
 }
 let aiState = "unknown";   // unknown | on | off
-async function aiFor(d){
+// Several parts of the page can ask about the same book at once (the preview, the card, the map). They all
+// share one request, so a book costs one Claude call.
+const aiInflight = new Map();
+function aiFor(d){
+  const k = MM.bookKey(d);
+  if(aiInflight.has(k)) return aiInflight.get(k).then(r=>{ if(r.skipped) d.aiSkipped = 1; return r.setting; });
+  const p = aiAsk(d).then(setting=>({setting, skipped: !!d.aiSkipped}), ()=>({setting:null, skipped:true}));
+  aiInflight.set(k, p);
+  p.finally(()=>aiInflight.delete(k));
+  return p.then(r=>r.setting);
+}
+async function aiAsk(d){
   if(aiState === "off" || !cloud()) return null;
   const {data, error} = await sb.functions.invoke("book-setting", {body:{key:MM.bookKey(d), title:d.t, author:d.a || "", year:d.y || null, qid:d.qid || null, isbn:isbnOk(d.isbn13) || isbnOk(d.isbn) || null, overview:d.ov || ""}});
   if(error){
