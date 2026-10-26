@@ -30,6 +30,7 @@ const SB_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const UA = { "User-Agent": "TheBookMap/1.0 (+https://dominicvhoule.github.io/thebookmap/)" };
 const DAILY_AI_CAP = 3000;
+const WIKI_FILTER_SINCE = "2026-10-26T00:30:00Z";   // when the story-sentence filter last changed
 
 const db = (path: string, init: RequestInit = {}) =>
   fetch(`${SB_URL}/rest/v1/${path}`, {
@@ -40,7 +41,7 @@ const clip = (s: unknown, n: number) => String(s ?? "").trim().slice(0, n);
 const norm = (s: string) => String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/&/g, "and").replace(/[^a-z0-9]/g, "");
 
 // ---------- Wikipedia: keep the sentences about the story ----------
-const META = /\b(published|publication|publish|reprint|considered|regarded|acclaimed|hailed|bestsell|best-sell|best sell|award|prize|nominat|adapted|adaptation|translated|translation|installments?|instalments?|serial|serialized|edition|sold|copies|praised|critic|review|banned|film|movie|television|miniseries|ranked|greatest|masterpiece|classic|landmark|debut|sequel|trilogy|series of|volume|imprint|publisher|author of|written by|wrote|his (first|second|third|last|final)|her (first|second|third|last|final)|literary|literature|genre|bestseller|nominee|Wikipedia)(s|es|ed|ing)?\b/i;
+const META = /\b(published|publication|publish|reprint|considered|regarded|acclaimed|hailed|bestsell|best-sell|best sell|award|prize|nominat|adapted|adaptation|translated|translation|installments?|instalments?|serial|serialized|edition|sold|copies|praised|critic|review|banned|film|movie|television|miniseries|ranked|greatest|masterpiece|classic|landmark|debut|sequel|trilogy|series of|volume|imprint|publisher|author of|written by|wrote|his (first|second|third|last|final)|her (first|second|third|last|final)|literary|literature|genre|bestseller|nominee|Wikipedia|magazine|newspaper|list of|depiction|depicts|portrayal|portrays|helped|influence|influential|popular|popularity|audience|reception|Pulitzer|Nobel|best known|best-known|inspired|controversy|controversial)(s|es|ed|ing)?\b/i;
 const IS_A = /^[^.]{0,160}\b(is|was) an? ([\w-]+ ){0,6}(novel|novella|book|memoir|autobiography|biography|collection|work|story|play|poem|treatise|account|history|study|essay)s?\b/i;
 function sentences(text: string) {
   const t = String(text || "").replace(/\[(\d+|[a-z])\]/g, "")
@@ -119,7 +120,7 @@ async function aiToday() {
   return Number((r.headers.get("content-range") ?? "").split("/")[1]) || 0;
 }
 const save = (row: Record<string, unknown>) =>
-  db("book_summaries?on_conflict=book_key", { method: "POST", headers: { Prefer: "resolution=merge-duplicates" }, body: JSON.stringify(row) }).catch(() => {});
+  db("book_summaries?on_conflict=book_key", { method: "POST", headers: { Prefer: "resolution=merge-duplicates" }, body: JSON.stringify({ ...row, created_at: new Date().toISOString() }) }).catch(() => {});
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
@@ -134,7 +135,9 @@ Deno.serve(async (req) => {
   try {
     const hit = await (await db(`book_summaries?book_key=eq.${encodeURIComponent(key)}&select=*`)).json();
     const s = Array.isArray(hit) && hit[0];
-    if (s && (s.source !== "none" || !ANTHROPIC_KEY)) return json({ summary: s.summary ?? "", source: s.source, page: s.wiki_page ?? null, lang: s.wiki_lang ?? null, cached: true });
+    // Wikipedia summaries picked before the sentence filter was tightened are picked again.
+    const stale = s && s.source === "wikipedia" && String(s.created_at || "") < WIKI_FILTER_SINCE;
+    if (s && !stale && (s.source !== "none" || !ANTHROPIC_KEY)) return json({ summary: s.summary ?? "", source: s.source, page: s.wiki_page ?? null, lang: s.wiki_lang ?? null, cached: true });
   } catch { /* carry on */ }
 
   try {

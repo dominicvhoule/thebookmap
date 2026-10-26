@@ -153,6 +153,47 @@ async function coverOf(f, size){
   }
   return MM.coverURL(f, size);
 }
+/* ---------- Want to read: each reader's private list (table book_wants) ---------- */
+let myWants = [], railTab = "read";
+async function loadWants(){
+  myWants = [];
+  if(!(sb && session && me)) return;
+  const {data, error} = await sb.from("book_wants").select("*").order("created_at", {ascending:false});
+  if(!error) myWants = (data || []).map(r=>({id:r.id, key:r.book_key, t:r.title, a:r.author || "", y:r.year || "", ol:r.ol_key || "", coverId:r.cover_id || null, isbn:r.isbn || ""}));
+}
+const wantOf = b => myWants.find(w=>w.key === MM.bookKey(b));
+const wantBtn = b => `<button type="button" class="btn ghost small want${wantOf(b) ? " on" : ""}" id="d-want">${wantOf(b) ? "✓ Want to read" : "+ Want to read"}</button>`;
+function bindWant(b){
+  const btn = detail.querySelector("#d-want"); if(!btn) return;
+  btn.onclick = async ()=>{
+    if(!(sb && session && me)){ toast("Sign in to keep a Want to read list"); location.hash = "#/account/in"; return; }
+    btn.disabled = true;
+    try{
+      const w = wantOf(b);
+      if(w){
+        const {error} = await sb.from("book_wants").delete().eq("id", w.id); if(error) throw error;
+        myWants = myWants.filter(x=>x !== w); toast("Taken off your Want to read list");
+      } else {
+        const row = {book_key:MM.bookKey(b), title:String(b.t).slice(0, 400), author:String(b.a || "").slice(0, 300) || null, year:+b.y || null,
+          ol_key:/^OL\d+W$/.test(b.ol || "") ? b.ol : null, cover_id:+b.coverId > 0 ? +b.coverId : null, isbn:String(b.isbn13 || b.isbn || "").slice(0, 20) || null};
+        const {data, error} = await sb.from("book_wants").insert(row).select().single();
+        if(error){ if(error.code === "23505"){ await loadWants(); btn.outerHTML = wantBtn(b); bindWant(b); return; } throw error; }
+        myWants.unshift({id:data.id, key:row.book_key, t:row.title, a:row.author || "", y:row.year || "", ol:row.ol_key || "", coverId:row.cover_id, isbn:row.isbn || ""});
+        toast("Added to your Want to read list");
+      }
+      btn.outerHTML = wantBtn(b); bindWant(b);
+      if(railTab === "want") renderList(); else paintRailTabs();
+    }catch(e){ btn.disabled = false; toast("Couldn't update your Want to read list. Try again."); }
+  };
+}
+// The reading log's heading: on your own map, "Reading log | Want to read (n)".
+function paintRailTabs(){
+  const h = $("#loghead"); if(!h) return;
+  if(!(viewing.mine && me)){ railTab = "read"; h.textContent = "Reading log"; $("#q").hidden = false; return; }
+  h.innerHTML = `<button type="button" data-tab="read" aria-pressed="${railTab === "read"}">Reading log</button><button type="button" data-tab="want" aria-pressed="${railTab === "want"}">Want to read <span>${myWants.length}</span></button>`;
+  h.querySelectorAll("button").forEach(b=>b.onclick = ()=>{ railTab = b.dataset.tab; renderList(); });
+  $("#q").hidden = railTab === "want";
+}
 async function reloadMine(){ try{ myBooks = await Store.load(); }catch(e){ myBooks = []; toast("Couldn't load your books. Check your connection."); } }
 const myKeys = () => new Set(myBooks.map(MM.bookKey));
 const onMyMap = m => myKeys().has(MM.bookKey(m)) || (!!m.ol && myBooks.some(b=>b.ol === m.ol)) || (!!m.gr && myBooks.some(b=>b.gr === m.gr));
@@ -519,13 +560,13 @@ async function openBook(f, fly){
       ${note ? `<p class="note">${esc(note)}</p>` : ""}
       <div id="d-sum">${sumHTML(sum)}</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">${f.r ? `<span class="stars">${stars(f.r)}</span>` : ""}${f.rv ? '<span class="tag">Reviewed</span>' : ""}${f.rc > 1 ? `<span class="tag">Read ${f.rc} times</span>` : ""}${f.ap ? '<span class="tag ap">Approx. setting</span>' : ""}${f.read ? `<span class="tag muted">Read ${esc(fmtDay(f.read))}</span>` : ""}</div>
-      ${mine ? `<div class="cta"><button class="btn ghost small" id="d-move">Move pin</button><button class="btn ghost small" id="d-del">Remove</button></div>` : ""}
-      <div class="links"><a class="linkbtn" href="${esc(MM.goodreadsPage(f))}" target="_blank" rel="noopener">Goodreads ↗</a>${f.ol ? `<a class="linkbtn" href="${esc(MM.olPage(f))}" target="_blank" rel="noopener">Open Library ↗</a>` : ""}</div>
+      ${mine ? `<div class="cta"><button class="btn ghost small" id="d-move">Move pin</button><button class="btn ghost small" id="d-del">Remove</button></div>` : (onMyMap(f) ? "" : `<div class="cta">${wantBtn(f)}</div>`)}
       <div id="d-more"><button type="button" class="btn ghost small" id="d-more-btn">See more like this</button></div>
     </div>`;
   detail.hidden = false; detail.scrollTop = 0;
   detail.querySelector(".x").onclick = closeDetail;
-  if(!(sum && sum.text)) fillSummary(f, token);   // only if it was too slow to wait for
+  if(!(sum && sum.text)) fillSummary(f, token);
+  bindWant(f);   // only if it was too slow to wait for
   // Suggestions only load when asked for, which also keeps opening a card quick.
   const moreBtn = detail.querySelector("#d-more-btn");
   if(moreBtn) moreBtn.onclick = ()=>{ moreBtn.disabled = true; moreBtn.textContent = "Finding books like this…";
@@ -596,19 +637,18 @@ async function openPreview(m, from){
       <div id="pv-place">${settings === null ? `<p class="hint busy" style="margin:0">Finding where it's set…</p>` : placeBlock(s)}</div>
       <div id="d-sum">${sumHTML(parts.sum)}</div>
       ${det.subjects && det.subjects.length ? `<div style="display:flex;gap:6px;flex-wrap:wrap">${det.subjects.slice(0, 3).map(x=>`<span class="tag muted">${esc(x)}</span>`).join("")}</div>` : ""}
-      <div class="cta"><button class="btn gold" type="button" id="pv-add">Add to my map</button></div>
+      <div class="cta"><button class="btn gold" type="button" id="pv-add">Add to my map</button>${wantBtn(det)}</div>
       <div class="watch"><b class="sub" style="font-size:15px">Find a copy</b>
         <div class="shops">
           <a href="${esc(shopLink("bookshop", det))}" target="_blank" rel="noopener sponsored">Bookshop.org ↗</a>
           <a href="${esc(shopLink("library", det))}" target="_blank" rel="noopener">At a library ↗</a>
-          <a href="${esc(shopLink("openlibrary", det))}" target="_blank" rel="noopener">Open Library ↗</a>
-          <a href="${esc(shopLink("goodreads", det))}" target="_blank" rel="noopener">Goodreads ↗</a>
         </div></div>
     </div>`;
   detail.hidden = false; detail.scrollTop = 0;
   detail.querySelector(".x").onclick = closeDetail;
   const back = $("#pv-back"); if(back) back.onclick = ()=>{ preview = null; openBook(from, true); };
   if(!(parts.sum && parts.sum.text)) fillSummary(det, token);
+  bindWant(det);
   $("#pv-add").onclick = ()=>{ preview = null; pendingLog = {ol:det.ol, t:det.t, a:det.a, y:det.y, coverId:det.coverId, qid:det.qid, places:det.places}; location.hash = "#/log"; };
 }
 function closeDetail(){ preview = null; openToken++; detail.hidden = true; selected = null; renderPins(); markListSelection(); }
@@ -633,8 +673,17 @@ function setOwnerHeader(){
 let listObserver = null;
 function renderList(){
   const ul = $("#films");
-  const list = filtered();
+  paintRailTabs();
   listObserver && listObserver.disconnect();
+  if(railTab === "want"){
+    const ws = myWants;
+    ul.innerHTML = ws.length ? ws.map((w,i)=>`<li><button data-i="${i}" style="--c:${cloth(w)}"><span class="bar"></span><span class="th" data-i="${i}"></span><span style="min-width:0"><b>${esc(w.t)}</b><span class="meta"><i>${esc(String(w.a).split(" & ")[0])}</i></span></span><span class="r"><em>${esc(w.y)}</em></span></button></li>`).join("")
+      : `<li class="empty">Nothing here yet. Open any book that isn't on your map, from a friend's map, Emily's shelf or "See more like this", and press <b>Want to read</b>.</li>`;
+    ul.querySelectorAll("button[data-i]").forEach(b=>b.onclick = ()=>openPreview(ws[+b.dataset.i], null));
+    if(ws.length) listObserver = lazyCovers(ul, el=>ws[+el.dataset.i], "S");
+    return;
+  }
+  const list = filtered();
   if(!list.length){
     ul.innerHTML = `<li class="empty">${viewing.films.length ? "No books match that filter." : viewing.mine ? 'No books yet. <a href="#/log">Log a book</a> or <a href="#/import">link Goodreads</a>.' : "No books logged yet."}</li>`;
     return;
@@ -645,6 +694,7 @@ function renderList(){
   markListSelection();
 }
 function markListSelection(){
+  if(railTab === "want") return;
   const list = filtered();
   $("#films").querySelectorAll("button[data-i]").forEach(b=>b.classList.toggle("sel", list[+b.dataset.i] === selected));
 }
@@ -1644,6 +1694,7 @@ async function onAuth(newSession, event){
   MM.aiSetting = (sb && newSession && booksReady) ? aiFor : null;
   if(cloud()) await moveLocalBooks();
   await reloadMine();
+  await loadWants().catch(()=>{});
   paintAccountLink();
   maybeAutoSync();
   if(event === "PASSWORD_RECOVERY"){

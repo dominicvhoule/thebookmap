@@ -174,7 +174,7 @@ MM.wikiPlotSetting = async function(det){
 // What the book is about, in two or three sentences: the opening of its encyclopedia article when that
 // describes the story, else the publisher's description, else the start of the plot. Sentences about
 // publication, prizes, sales and adaptations are left out; so are the sources' names.
-const META = /\b(published|publication|publish|reprint|considered|regarded|acclaimed|hailed|bestsell|best-sell|best sell|award|prize|nominat|adapted|adaptation|translated|translation|installments?|instalments?|serial|serialized|edition|sold|copies|praised|critic|review|banned|film|movie|television|miniseries|ranked|greatest|masterpiece|classic|landmark|debut|sequel|trilogy|series of|volume|imprint|publisher|author of|written by|wrote|his (first|second|third|last|final)|her (first|second|third|last|final)|literary|literature|genre|bestseller|nominee|Wikipedia)(s|es|ed|ing)?\b/i;
+const META = /\b(published|publication|publish|reprint|considered|regarded|acclaimed|hailed|bestsell|best-sell|best sell|award|prize|nominat|adapted|adaptation|translated|translation|installments?|instalments?|serial|serialized|edition|sold|copies|praised|critic|review|banned|film|movie|television|miniseries|ranked|greatest|masterpiece|classic|landmark|debut|sequel|trilogy|series of|volume|imprint|publisher|author of|written by|wrote|his (first|second|third|last|final)|her (first|second|third|last|final)|literary|literature|genre|bestseller|nominee|Wikipedia|magazine|newspaper|list of|depiction|depicts|portrayal|portrays|helped|influence|influential|popular|popularity|audience|reception|Pulitzer|Nobel|best known|best-known|inspired|controversy|controversial)(s|es|ed|ing)?\b/i;
 const IS_A = /^[^.]{0,160}\b(is|was) an? ([\w-]+ ){0,6}(novel|novella|book|memoir|autobiography|biography|collection|work|story|play|poem|treatise|account|history|study|essay)s?\b/i;
 function sentences(text){
   const t = String(text || "").replace(/\s*\[[^\]]*\]\([^)]*\)/g, "").replace(/\[(\d+|[a-z])\]/g, "").replace(/\s*\((?:[^()]*?)(?:Russian|French|German|Spanish|Italian|Japanese|Chinese|Swedish|Portuguese|Arabic|Hebrew|IPA|tr\.|lit\.|pronounced|born|died|\d{4}[–-]\d{4})[^()]*\)/g, "")
@@ -207,7 +207,7 @@ async function wikiSummaryText(page){
 MM.summaryServer = null;   // set by app.js: (body) => Promise<{summary, source, page}>
 MM.bookSummary = async function(b){
   if(!b || !b.t) return {text:"", source:""};
-  const k = "bm-sum3:" + MM.bookKey(b);
+  const k = "bm-sum4:" + MM.bookKey(b);
   const hit = MM.lsGet(k, null); if(hit !== null) return hit;
   let det = b;
   if(!det.ol && !det.qid){ const m = await MM.matchBook(b).catch(()=>null); if(m) det = Object.assign({}, m, {t:b.t, a:b.a}); }
