@@ -13,6 +13,13 @@
 //   - a call that produced no usable answer (cut off, not JSON) is retried, but a book gets at most
 //     MAX_FAILED_TRIES failed calls in total.
 //
+// Claude's full raw reply is saved with each call in ai_calls.raw.
+//
+// Replay (for inspecting what Claude writes): POST {key, title, ..., replay: "<ticket>", with_summary?: bool}
+// with a single-use ticket from the private ai_replay_tokens table (made by hand, for that book). A replay
+// ignores the saved pin and the limits, saves nothing to book_settings or book_summaries, and returns
+// Claude's raw reply.
+//
 // Needs these Edge Function secrets (Supabase → Edge Functions → Secrets), shared with MovieMap:
 //   ANTHROPIC_API_KEY   your key from console.anthropic.com
 //   ANTHROPIC_MODEL     optional; defaults to claude-haiku-5-5
@@ -73,6 +80,14 @@ async function countCalls(filter: string) {
 const since = (days: number) => new Date(Date.now() - days * 86400_000).toISOString();
 const logCall = (row: Record<string, unknown>) =>
   db("ai_calls", { method: "POST", body: JSON.stringify({ fn: "book-setting", ...row }) }).catch(() => {});
+// A replay ticket is good once, for one book.
+async function useReplayTicket(token: string, key: string) {
+  if (!/^[A-Za-z0-9_-]{24,100}$/.test(token)) return false;
+  const r = await db(`ai_replay_tokens?token=eq.${token}&book_key=eq.${encodeURIComponent(key)}`, {
+    method: "DELETE", headers: { Prefer: "return=representation" } });
+  const rows = r.ok ? await r.json() : [];
+  return Array.isArray(rows) && rows.length === 1;
+}
 
 // ---------- Wikipedia ----------
 async function wikiTitle(qid: string, title: string, author: string) {
@@ -83,9 +98,12 @@ async function wikiTitle(qid: string, title: string, author: string) {
       if (t) return t as string;
     } catch { /* fall through to search */ }
   }
+  // No linked article: search, but only accept an article about this book (same title). Otherwise a
+  // search for "My Search for Ramanujan" hands Claude the article on Ramanujan as if it were the book's.
   try {
-    const r = await fetch(`https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(`${title} ${author} novel book`)}&srlimit=1&format=json`, { headers: UA });
-    return ((await r.json())?.query?.search?.[0]?.title as string) ?? null;
+    const r = await fetch(`https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(`${title} ${author} novel book`)}&srlimit=5&format=json`, { headers: UA });
+    const hits: { title: string }[] = (await r.json())?.query?.search ?? [];
+    return hits.map((h) => h.title).find((t) => sameTitle(t, title)) ?? null;
   } catch { return null; }
 }
 async function wikiText(page: string) {
@@ -184,7 +202,8 @@ For the summary: write entirely in your own words in English and don't copy phra
   // A reply cut off by the length limit, or one that isn't JSON, is a failed call (retried, up to
   // MAX_FAILED_TRIES in total), not an "unknown" (which stops the book being asked about for good).
   const broken = res?.stop_reason === "max_tokens" || !answer;
-  return { answer: broken ? null : answer, broken, usage: { in_tokens: res?.usage?.input_tokens ?? null, out_tokens: res?.usage?.output_tokens ?? null } };
+  return { answer: broken ? null : answer, broken, raw: text.slice(0, 20000), stop_reason: res?.stop_reason ?? null,
+    usage: { in_tokens: res?.usage?.input_tokens ?? null, out_tokens: res?.usage?.output_tokens ?? null } };
 }
 
 const clip = (s: unknown, n: number) => String(s ?? "").trim().slice(0, n);
@@ -199,6 +218,26 @@ Deno.serve(async (req) => {
   const key = clip(b.key, 300), title = clip(b.title, 300), author = clip(b.author, 200);
   const year = Number(b.year) || null;
   if (!key || !title) return json({ error: "bad_request" }, 400);
+
+  // Replay: run the lookup again and hand back Claude's raw reply, saving nothing but the call log.
+  if (typeof b.replay === "string") {
+    if (!(await useReplayTicket(b.replay, key))) return json({ error: "bad_ticket" }, 403);
+    try {
+      const [page, gbooks] = await Promise.all([
+        wikiTitle(clip(b.qid, 20), title, author).catch(() => null),
+        googleBooksDescription(clip(b.isbn, 13).replace(/[^0-9X]/gi, ""), title, author),
+      ]);
+      const wiki = page ? await wikiText(page).catch(() => "") : "";
+      const wantSummary = b.with_summary === true;
+      const asked = await askClaude(title, author, year, gbooks, clip(b.overview, 1500), wiki, wantSummary);
+      await logCall({ fn: "book-setting-replay", book_key: key, result: asked.broken ? "error" : asked.answer?.unknown ? "unknown" : "ok",
+        raw: asked.raw, ...asked.usage });
+      return json({ raw: asked.raw, stop_reason: asked.stop_reason, usage: asked.usage, with_summary: wantSummary,
+        inputs: { wikipedia_page: page, wikipedia_chars: wiki.length, google_books_chars: gbooks.length, open_library_chars: clip(b.overview, 1500).length } });
+    } catch (e) {
+      return json({ error: String((e as Error).message || "failed") }, 500);
+    }
+  }
 
   // Already worked out for someone else? Reuse it.
   try {
@@ -244,7 +283,7 @@ Deno.serve(async (req) => {
       throw e;
     }
     if (asked.broken) {
-      await logCall({ book_key: key, user_id: uid, result: "error", ...asked.usage });
+      await logCall({ book_key: key, user_id: uid, result: "error", raw: asked.raw, ...asked.usage });
       return json({ setting: null, reason: "bad_answer" });
     }
     const a = asked.answer;
@@ -256,7 +295,7 @@ Deno.serve(async (req) => {
     }
     const lat = Number(a?.lat), lon = Number(a?.lon);
     const placed = a && !a.unknown && isFinite(lat) && isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180;
-    await logCall({ book_key: key, user_id: uid, result: placed ? "ok" : a?.unknown ? "unknown" : "error", ...asked.usage });
+    await logCall({ book_key: key, user_id: uid, result: placed ? "ok" : a?.unknown ? "unknown" : "error", raw: asked.raw, ...asked.usage });
     if (!a || a.unknown) return json({ setting: null, reason: "unknown", summary: summary || undefined });
     if (!placed) return json({ setting: null, reason: "bad_answer", summary: summary || undefined });
     const approx = a.precision === "country" || a.precision === "fictional";
