@@ -1684,8 +1684,9 @@ async function aiAsk(d){
   }
   if(data && data.reason === "no_api_key"){ aiState = "off"; return null; }
   aiState = "on";
-  // Turned away by a limit, or not on anyone's map yet: try this book again another time.
-  if(data && /^(not_on_a_map|daily_cap|user_cap|limits_unavailable)$/.test(data.reason || "")) d.aiSkipped = 1;
+  // Anything other than a real answer or "couldn't place it" (a limit, not on a map yet, a failed call):
+  // try this book again another time.
+  if(data && !data.setting && data.reason && data.reason !== "unknown") d.aiSkipped = 1;
   return data && data.setting || null;
 }
 async function onAuth(newSession, event){

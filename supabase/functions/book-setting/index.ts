@@ -171,7 +171,7 @@ For the summary: write entirely in your own words in English and don't copy phra
   const r = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-    body: JSON.stringify({ model: MODEL, max_tokens: wantSummary ? 600 : 400, messages: [{ role: "user", content: prompt }] }),
+    body: JSON.stringify({ model: MODEL, max_tokens: wantSummary ? 1000 : 800, messages: [{ role: "user", content: prompt }] }),
   });
   if (!r.ok) throw new Error(`anthropic_${r.status}`);
   const res = await r.json();
@@ -179,7 +179,10 @@ For the summary: write entirely in your own words in English and don't copy phra
   const m = text.match(/\{[\s\S]*\}/);
   let answer: Record<string, unknown> | null = null;
   try { answer = m ? JSON.parse(m[0]) : null; } catch { answer = null; }
-  return { answer, usage: { in_tokens: res?.usage?.input_tokens ?? null, out_tokens: res?.usage?.output_tokens ?? null } };
+  // A reply cut off by the length limit, or one that isn't JSON, is a failed call (retried later), not an
+  // "unknown" (which stops the book being asked about for UNKNOWN_RETRY_DAYS).
+  const broken = res?.stop_reason === "max_tokens" || !answer;
+  return { answer: broken ? null : answer, broken, usage: { in_tokens: res?.usage?.input_tokens ?? null, out_tokens: res?.usage?.output_tokens ?? null } };
 }
 
 const clip = (s: unknown, n: number) => String(s ?? "").trim().slice(0, n);
@@ -234,6 +237,10 @@ Deno.serve(async (req) => {
       await logCall({ book_key: key, user_id: uid, result: "error" });
       throw e;
     }
+    if (asked.broken) {
+      await logCall({ book_key: key, user_id: uid, result: "error", ...asked.usage });
+      return json({ setting: null, reason: "bad_answer" });
+    }
     const a = asked.answer;
     // The card summary, when one was asked for.
     const summary = wantSummary && a && typeof a.summary === "string" ? clip(a.summary.replace(/^["“]|["”]$/g, "").replace(/\s+/g, " "), 700) : "";
@@ -243,7 +250,7 @@ Deno.serve(async (req) => {
     }
     const lat = Number(a?.lat), lon = Number(a?.lon);
     const placed = a && !a.unknown && isFinite(lat) && isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180;
-    await logCall({ book_key: key, user_id: uid, result: placed ? "ok" : "unknown", ...asked.usage });
+    await logCall({ book_key: key, user_id: uid, result: placed ? "ok" : a?.unknown ? "unknown" : "error", ...asked.usage });
     if (!a || a.unknown) return json({ setting: null, reason: "unknown", summary: summary || undefined });
     if (!placed) return json({ setting: null, reason: "bad_answer", summary: summary || undefined });
     const approx = a.precision === "country" || a.precision === "fictional";
