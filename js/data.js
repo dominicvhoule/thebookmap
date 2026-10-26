@@ -436,6 +436,91 @@ const CONT_CODES = {"Europe":"AD AL AT AX BA BE BG BY CH CZ DE DK EE ES FI FO FR
 const CONT_BY_ISO = {}; Object.entries(CONT_CODES).forEach(([c, codes])=>codes.split(" ").forEach(k=>CONT_BY_ISO[k] = c));
 MM.continentOf = c => CONT_BY_ISO[MM.isoFor(c)] || "";
 
+/* ---------------- genres ---------------- */
+// A few broad genres a reader can filter the map by. A book can have several (a historical mystery is both).
+MM.GENRES = ["Fiction", "Classics", "Historical fiction", "Mystery & crime", "Thriller", "Science fiction", "Fantasy",
+  "Romance", "Horror", "Young adult", "Poetry", "Memoir & biography", "History", "Philosophy", "Travel",
+  "Science & nature", "Politics & society", "Religion"];
+// Library subjects ("Detective and mystery stories", "Philosophy, Modern") and Wikidata genres
+// ("philosophical novel") → broad genres. Catalogue subjects are noisy (study guides, comic adaptations,
+// "History" on novels), so weak signals need to appear more than once.
+MM.genresFrom = function(subjects, wdGenres, year){
+  const subs = (subjects || []).map(s=>String(s).toLowerCase())
+    .filter(s=>!/study guide|criticism|interpretation|adaptation|comic|graphic novel|manuscript|facsimile|readers? \(|textbook|language|large type|translations into|accessible book|protected daisy|in library|open library|internet archive/.test(s));
+  const wd = (wdGenres || []).map(s=>String(s).toLowerCase());
+  const all = [...subs, ...wd];
+  const n = re => all.filter(s=>re.test(s)).length;
+  const strong = re => wd.some(s=>re.test(s));
+  // Fiction or not: whichever kind of subject there's more of (a memoir's catalogue entry can still
+  // mention "fiction" somewhere). Wikidata's genre settles it when it says.
+  const fic = n(/\bfiction\b|novel|short stories|fairy tales|fables|\bstories\b/) - n(/nonfiction|non-fiction/);
+  const non = n(/biograph|memoir|autobiograph|personal narratives|description and travel|essays|journalism|true crime|social conditions|philosophy|\bhistory\b(?!.*fiction)|popular works|science(?! fiction)/);
+  const fiction = strong(/novel|fiction|short stor|fantasy|fable|play/) ? !strong(/^(autobiography|memoir|biography|essay|treatise|travel literature|non-fiction|history)/) : fic > 0 && fic >= non;
+  const g = new Set();
+  const add = (name, re, min = 1) => { if(strong(re) || n(re) >= min) g.add(name); };
+  if(fiction){
+    g.add("Fiction");
+    if(+year && +year <= 1950) g.add("Classics");
+    add("Historical fiction", /historical (fiction|novel)|fiction, historical/, 1);
+    add("Mystery & crime", /detective|mystery|crime fiction|fiction, crime|whodunit|police procedural/, 2);
+    add("Thriller", /thriller|suspense|spy stories|espionage/, 2);
+    add("Science fiction", /science fiction|dystopia|space opera|cyberpunk|time travel/, 2);
+    add("Fantasy", /fantasy|magic|wizards|dragons|imaginary places|elves/, 2);
+    add("Romance", /romance|love stories/, 2);
+    add("Horror", /horror|vampires|ghost stories|haunted|supernatural/, 2);
+    add("Young adult", /young adult|juvenile fiction|teenage/, 3);
+    add("Philosophy", /philosophical (fiction|novel)|existential/, 1);
+  } else {
+    add("Memoir & biography", /biograph|memoir|autobiograph|diaries|personal narratives|correspondence/, 1);
+    add("History", /\bhistory\b|historiography|world war|civil war|holocaust|ancient|medieval|revolution/, 2);
+    add("Philosophy", /philosoph|ethics|metaphysics|existentialism|stoic|logic\b/, 1);
+    add("Travel", /travel|description and travel|voyages|journeys|exploration/, 1);
+    add("Science & nature", /\bscience\b|nature|biology|physics|evolution|natural history|ecology|astronomy|medicine|mountaineering/, 1);
+    add("Politics & society", /politic|social conditions|sociology|economics|race relations|government|social life|human rights/, 2);
+    add("Religion", /religio|spiritual|theology|christian|islam|buddhis|bible|god\b/, 1);
+  }
+  add("Poetry", /poetry|poems|verse/, 1);
+  return MM.GENRES.filter(x=>g.has(x));
+};
+
+// Genres for a set of books, worked out once per book: the hand-checked starter shelf has them already;
+// otherwise this browser's cache, then the shared table (MM.remoteGenres, set by app.js), then Open
+// Library's subjects (40 books per request) and Wikidata's genre, sorted into MM.GENRES.
+MM.remoteGenres = null; MM.saveRemoteGenres = null;
+MM.genresOf = async function(books){
+  const need = books.filter(b=>!b.g);
+  need.forEach(b=>{ const c = lsGet("bm-gen1:" + MM.bookKey(b), null); if(c) b.g = c; });
+  let rest = need.filter(b=>!b.g);
+  if(rest.length && MM.remoteGenres){
+    const got = await MM.remoteGenres(rest.map(MM.bookKey)).catch(()=>({}));
+    rest.forEach(b=>{ const g = got[MM.bookKey(b)]; if(g){ b.g = g; lsSet("bm-gen1:" + MM.bookKey(b), g); } });
+    rest = rest.filter(b=>!b.g);
+  }
+  // Books found on Open Library: their subjects, 40 at a time.
+  const withOl = rest.filter(b=>/^OL\d+W$/.test(b.ol || ""));
+  const subjects = {};
+  for(let i=0; i<withOl.length; i+=40){
+    const part = withOl.slice(i, i+40);
+    const q = "key:(" + part.map(b=>`"/works/${b.ol}"`).join(" OR ") + ")";
+    const d = await olFetch(`/search.json?q=${encodeURIComponent(q)}&fields=key,subject&limit=100`).catch(()=>null);
+    (d && d.docs || []).forEach(x=>{ subjects[String(x.key).replace("/works/", "")] = x.subject || []; });
+  }
+  const qids = [...new Set(rest.map(b=>b.qid).filter(q=>/^Q\d+$/.test(q || "")))], wdg = {};
+  for(let i=0; i<qids.length; i+=60){
+    const rows = await sparql(`SELECT ?w ?gLabel WHERE { VALUES ?w { ${qids.slice(i, i+60).map(q=>"wd:"+q).join(" ")} } ?w wdt:P136 ?g . SERVICE wikibase:label { bd:serviceParam wikibase:language "en". } }`);
+    rows.forEach(r=>{ const k = qidOf(r.w.value), l = r.gLabel && r.gLabel.value; if(l && !/^Q\d+$/.test(l)) (wdg[k] = wdg[k] || []).push(l); });
+  }
+  const save = {};
+  rest.forEach(b=>{
+    const subs = subjects[b.ol], wd = wdg[b.qid];
+    if(!subs && !wd) return;   // nothing to go on (yet)
+    const g = MM.genresFrom(subs || [], wd || [], b.y);
+    if(!g.length) return;   // catalogue had nothing useful; try again another time
+    b.g = g; lsSet("bm-gen1:" + MM.bookKey(b), g); save[MM.bookKey(b)] = g;
+  });
+  if(MM.saveRemoteGenres && Object.keys(save).length) MM.saveRemoteGenres(save);
+};
+
 /* ---------------- avatar colour ---------------- */
 MM.avatarColor = function(name){
   const pal = ["#BF4E2A","#56663A","#3E7590","#A0712A","#7A4E7E","#2F6F62"];

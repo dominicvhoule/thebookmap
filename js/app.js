@@ -84,6 +84,23 @@ if(sb){
       title:String(m.t || "").slice(0, 400), author:String(m.a || "").slice(0, 300), year:+m.y || null}, {onConflict:"book_key", ignoreDuplicates:true})
       .then(({error})=>{ if(error && /book_matches/.test(error.message || "")) matchesTable = false; }, ()=>{});
   };
+  // Shared genres (table book_genres): each book's genres are worked out once for everyone.
+  let genresTable = true;
+  MM.remoteGenres = async keys => {
+    const out = {}; if(!genresTable) return out;
+    const list = [...new Set(keys)];
+    for(let i=0; i<list.length; i+=150){
+      const {data, error} = await sb.from("book_genres").select("book_key,genres").in("book_key", list.slice(i, i+150));
+      if(error){ genresTable = false; return out; }
+      (data || []).forEach(r=>out[r.book_key] = r.genres || []);
+    }
+    return out;
+  };
+  MM.saveRemoteGenres = map => {
+    if(!genresTable || !session) return;
+    const rows = Object.entries(map).filter(([k])=>k.length <= 300).map(([book_key, genres])=>({book_key, genres}));
+    for(let i=0; i<rows.length; i+=200) sb.from("book_genres").upsert(rows.slice(i, i+200), {onConflict:"book_key", ignoreDuplicates:true}).then(()=>{}, ()=>{});
+  };
   MM.aiSetting = null;   // switched on after sign-in, once the function answers
   MM.summaryServer = body => sb.functions.invoke("book-summary", {body}).then(({data, error})=>{ if(error) throw error; return data; });
   MM.saveRemoteSettings = async map => {
@@ -440,10 +457,28 @@ function groupBooks(list){
   groups.forEach(g=>{ g.ap = g.films.every(f=>f.ap); g.key = g.films.map(MM.bookKey).join("~"); });
   return groups;
 }
+let genreSel = "";   // the genre the map is narrowed to ("" = every book)
 function filtered(){
   const q = ($("#q").value||"").toLowerCase().trim();
-  const list = viewing.films;
+  let list = viewing.films;
+  if(genreSel) list = list.filter(f=>(f.g || []).includes(genreSel));
   return q ? list.filter(f=>[f.t,f.a,f.p,f.c,f.s].join(" ").toLowerCase().includes(q)) : list;
+}
+// The genre chips across the top of the map: tap one to see only those books (and where they're set).
+function renderGenres(){
+  const el = $("#genres"); if(!el) return;
+  const films = viewing.films || [];
+  const count = {}; films.forEach(f=>(f.g || []).forEach(g=>count[g] = (count[g] || 0) + 1));
+  const list = MM.GENRES.filter(g=>count[g]);
+  if(viewing.owner && viewing.owner.welcome || !list.length){ el.hidden = true; el.innerHTML = ""; return; }
+  if(genreSel && !count[genreSel]) genreSel = "";
+  el.hidden = false;
+  el.innerHTML = `<button type="button" data-g="" aria-pressed="${!genreSel}">All <span>${films.length}</span></button>` +
+    list.map(g=>`<button type="button" data-g="${esc(g)}" aria-pressed="${genreSel === g}">${esc(g)} <span>${count[g]}</span></button>`).join("");
+  el.querySelectorAll("button").forEach(b=>b.onclick = ()=>{
+    genreSel = b.dataset.g === genreSel ? "" : b.dataset.g;
+    closeDetail(); setOwnerHeader(); renderGenres(); renderPins(); renderList(); renderCTA(); if(mapView !== "map") renderCountryList(true); fitPins(true);
+  });
 }
 const ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M5 4.5A2.5 2.5 0 0 1 7.5 2H19v16H7.5a1 1 0 0 0 0 2H19v2H7.5A2.5 2.5 0 0 1 5 19.5v-15Zm3 .5v2h8V5H8Z"/></svg>';
 function pinElement(d){
@@ -473,7 +508,7 @@ function renderPins(){
     const px = (sel ? 34 : far ? (many ? 22 : 18) : (many ? 28 : 24)) + 4, s = px / 32;
     return {type:"Feature", properties:{s, o:[0, sel ? -21 / s : 0]}, geometry:{type:"Point", coordinates:[g.lon, g.lat]}};
   })});
-  const visited = [...new Set(viewing.films.map(f=>MM.geoName(f.c)))];
+  const visited = [...new Set(filtered().map(f=>MM.geoName(f.c)))];
   if(map.getLayer("mm-visited")) map.setFilter("mm-visited", ["in", ["get","name"], ["literal", visited]]);
   // A name is only written where it fits inside its country at this zoom, like a printed map.
   const z = map.getZoom(), pxPerDeg = 512 * Math.pow(2, z) / 360;
@@ -740,10 +775,12 @@ function setOwnerHeader(){
   const av = $("#av"); av.textContent = (name||"?")[0]; av.style.background = MM.avatarColor(o.username || name);
   $("#uname").textContent = name;
   $("#ubio").textContent = [o.username ? "@" + o.username : "", o.bio].filter(Boolean).join(" · ");
-  const ctry = new Set(viewing.films.map(f=>MM.geoName(f.c)).filter(Boolean));
-  const cont = new Set(viewing.films.map(contOf).filter(Boolean));
-  const authors = new Set(viewing.films.map(f=>MM.norm(String(f.a||"").split(" & ")[0])).filter(Boolean));
-  $("#s-books").textContent = viewing.films.length;
+  // The numbers follow the genre chip, so "Philosophy" shows how many philosophy books and where.
+  const shown = genreSel ? viewing.films.filter(f=>(f.g || []).includes(genreSel)) : viewing.films;
+  const ctry = new Set(shown.map(f=>MM.geoName(f.c)).filter(Boolean));
+  const cont = new Set(shown.map(contOf).filter(Boolean));
+  const authors = new Set(shown.map(f=>MM.norm(String(f.a||"").split(" & ")[0])).filter(Boolean));
+  $("#s-books").textContent = shown.length;
   $("#s-authors").textContent = authors.size;
   $("#s-ctry").textContent = ctry.size;
   $("#s-cont").textContent = cont.size;
@@ -818,13 +855,16 @@ async function renderCTA(){
   if(POSTERS && viewing.films.length){ const a = document.createElement("a"); a.className = "btn ghost"; a.href = "#/poster"; a.textContent = "Poster"; cta.append(a); }
   if(o.goodreads_id){ const a = document.createElement("a"); a.className = "btn ghost"; a.href = "https://www.goodreads.com/user/show/" + encodeURIComponent(o.goodreads_id); a.target = "_blank"; a.rel = "noopener"; a.textContent = "Goodreads ↗"; cta.append(a); }
 }
-function renderAll(){ setOwnerHeader(); renderPins(); renderList(); renderCTA(); renderCountryList(); }
+function renderAll(){ setOwnerHeader(); renderGenres(); renderPins(); renderList(); renderCTA(); renderCountryList(); }
 
 function showMap(owner, films, mine){
   viewing = {owner, films, mine};
   const vt = document.querySelector(".viewtog"); if(vt) vt.hidden = !!owner.welcome;   // nothing to list on the welcome
-  selected = null; detail.hidden = true; $("#q").value = "";
+  selected = null; detail.hidden = true; $("#q").value = ""; genreSel = "";
   renderAll(); fitPins(true);
+  // Genres are worked out in the background (once per book); the chips appear when they're ready.
+  const shown = viewing.films;
+  if(shown.some(f=>!f.g)) MM.genresOf(shown).then(()=>{ if(viewing.films === shown) renderGenres(); }).catch(()=>{});
 }
 function showMine(){
   const owner = me ? Object.assign({}, me) : {name:"Your map", username:"", bio:"Saved in this browser"};
