@@ -367,9 +367,10 @@ MM.resolveSettings = async function(dets, onStep){
       let s = null;
       if(MM.aiSetting){ try{ s = await MM.aiSetting(d); }catch(e){} }
       if(!s) s = d.wdCountry || null;
-      if(!s){ s = MM.fallbackSetting(d); if(s) s = Object.assign({}, s, {aiTried: MM.aiSetting ? 1 : 0}); }
+      const tried = MM.aiSetting && !d.aiSkipped ? 1 : 0;
+      if(!s){ s = MM.fallbackSetting(d); if(s) s = Object.assign({}, s, {aiTried: tried}); }
       // Keep an old pin rather than losing it when nothing better turned up.
-      if(!s){ const old = MM.settingCache.get(keyOf(d)); if(old) s = Object.assign({}, old, {aiTried: MM.aiSetting ? 1 : 0}); }
+      if(!s){ const old = MM.settingCache.get(keyOf(d)); if(old) s = Object.assign({}, old, {aiTried: tried}); }
       if(s) put(d, s);
       done++; if(onStep) onStep(done, rest.length);
     });

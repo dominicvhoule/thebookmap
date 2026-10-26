@@ -993,7 +993,7 @@ async function placeEntries(entries, progress){
     for(const i of busy) found[i] = await MM.matchBook(entries[i]).catch(()=>null);
   }
   // Goodreads' own title and author are kept, so the book is recognised on the next sync.
-  const dets = entries.map((e,i)=>Object.assign({}, found[i] || {}, {t:e.t, a:e.a || (found[i] && found[i].a) || "", y:(found[i] && found[i].y) || e.y || ""}));
+  const dets = entries.map((e,i)=>Object.assign({}, found[i] || {}, {t:e.t, a:e.a || (found[i] && found[i].a) || "", y:(found[i] && found[i].y) || e.y || "", isbn:e.isbn || "", isbn13:e.isbn13 || ""}));
   const settings = await MM.resolveSettings(dets);
   const ready = [], missed = [];
   entries.forEach((e,i)=>{
@@ -1617,6 +1617,8 @@ async function aiFor(d){
   }
   if(data && data.reason === "no_api_key"){ aiState = "off"; return null; }
   aiState = "on";
+  // Turned away by a limit, or not on anyone's map yet: try this book again another time.
+  if(data && /^(not_on_a_map|daily_cap|user_cap|limits_unavailable)$/.test(data.reason || "")) d.aiSkipped = 1;
   return data && data.setting || null;
 }
 async function onAuth(newSession, event){
