@@ -353,3 +353,8 @@ a{color:var(--pin);text-underline-offset:2px}
 .sumcredit{margin:4px 0 0;font-size:11.5px;line-height:1.45;color:var(--muted)}
 .sumcredit a{color:inherit}
 #d-sum:empty{display:none}
+
+/* a suggestion that's opening */
+.more button.busy .th{position:relative}
+.more button.busy .th::after{content:"";position:absolute;inset:0;margin:auto;width:22px;height:22px;border:2.5px solid #fff;border-right-color:transparent;border-radius:50%;animation:spin .8s linear infinite;filter:drop-shadow(0 0 2px rgb(0 0 0/.6))}
+.more button.busy .t{opacity:.6}

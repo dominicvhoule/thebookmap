@@ -497,9 +497,9 @@ function lazyCovers(root, bookOf, size){
 }
 const loadImg = url => !url ? Promise.resolve(null) : new Promise(res=>{ const im = new Image(); im.onload = ()=>res(im.naturalWidth > 10 ? url : null); im.onerror = ()=>res(null); im.src = url; });
 // Everything a book card shows, fetched before the card appears (each part gives up after a few seconds).
-async function cardParts(b){
+async function cardParts(b, ms = 5000){
   const cover = (async()=>loadImg(b.coverId ? MM.coverURL(b, "L") : await coverOf(b, "L")))().catch(()=>null);
-  const [url, sum] = await Promise.all([timeout(cover, 5000), timeout(MM.bookSummary(b).catch(()=>null), 5000)]);
+  const [url, sum] = await Promise.all([timeout(cover, ms), timeout(MM.bookSummary(b).catch(()=>null), ms)]);
   return {url, sum};
 }
 async function openBook(f, fly){
@@ -537,7 +537,7 @@ async function openBook(f, fly){
     box.innerHTML = `<div class="more"><div class="more-h"><b class="sub" style="font-size:15px">${esc(sim.heading)}</b><span class="hint">Scroll for more →</span></div>
         <ul>${list.map((m,i)=>`<li><button type="button" data-i="${i}" title="${esc(m.t)}"><span class="th" style="--c:${cloth(m)};background-image:url('${MM.coverURL(m, "M")}')"></span><span class="t">${esc(m.t)}</span><span class="y">${esc(m.a.split(" & ")[0])}</span></button></li>`).join("")}</ul>
         <p class="hint" style="font-size:12px;margin:0">Tap one to see where it's set and where to find a copy.</p></div>`;
-    box.querySelectorAll(".more button").forEach(b=>b.onclick = ()=>openPreview(list[+b.dataset.i], f));
+    box.querySelectorAll(".more button").forEach(b=>b.onclick = ()=>{ box.querySelectorAll(".more button").forEach(x=>x.classList.remove("busy")); b.classList.add("busy"); openPreview(list[+b.dataset.i], f); });
   }); };
   if(mine){
     detail.querySelector("#d-move").onclick = ()=>{ toast("Tap the map where it takes place"); startPicking(async pt=>{
@@ -577,17 +577,23 @@ function fillSummary(b, token){
 }
 async function openPreview(m, from){
   const token = ++openToken;
-  const det = await timeout(MM.bookDetails(m).catch(()=>m), 6000) || m;
-  const [settings, parts] = await Promise.all([timeout(MM.resolveSettings([det]).catch(()=>null), 9000), cardParts(det)]);
+  // Everything is looked up at once, and the card waits at most about 4 seconds. If where it's set is
+  // still being worked out (it can take longer for a book nobody has added), the card opens anyway and
+  // the place fills in when it arrives.
+  const setP = MM.resolveSettings([m]).catch(()=>null);
+  const [det0, settings, parts] = await Promise.all([timeout(MM.bookDetails(m).catch(()=>m), 4000), timeout(setP, 4000), cardParts(m, 4000)]);
   if(token !== openToken) return;
+  const det = det0 || m;
   const s = settings && settings[0];
-  const note = s ? MM.cleanNote(s.n, placeLine({p:s.p, c:s.c})) : "";
-  if(s && isFinite(s.lat)){ preview = {lat:s.lat, lon:s.lon}; selected = null; renderPins(); flyTo({lat:s.lat, lon:s.lon}); }
+  const placeBlock = s => s ? `<div><div class="place">${esc(placeLine({p:s.p, c:s.c}))}</div>${MM.cleanNote(s.n, placeLine({p:s.p, c:s.c})) ? `<p class="note" style="margin:6px 0 0">${esc(MM.cleanNote(s.n, placeLine({p:s.p, c:s.c})))}</p>` : ""}</div>` : `<p class="hint" style="margin:0">We couldn't find where this one is set.</p>`;
+  const showPlace = s => { if(s && isFinite(s.lat)){ preview = {lat:s.lat, lon:s.lon}; selected = null; renderPins(); flyTo({lat:s.lat, lon:s.lon}); } };
+  showPlace(s);
+  if(settings === null) setP.then(r=>{ const el = token === openToken && $("#pv-place"); if(el){ const s2 = r && r[0]; el.innerHTML = placeBlock(s2); showPlace(s2); } });
   detail.innerHTML = `<div class="top">${coverSlot(det, parts.url)}
     <div class="stub"><small>${esc(det.y)}${det.pages ? " · " + det.pages + " pages" : ""}</small><h3>${esc(det.t)}</h3><p class="by">${esc(det.a)}</p><button class="x" aria-label="Close">×</button></div></div>
     <div class="body">
       ${from ? `<button type="button" class="back" id="pv-back" style="margin:0">← Back to ${esc(from.t)}</button>` : ""}
-      ${s ? `<div><div class="place">${esc(placeLine({p:s.p, c:s.c}))}</div>${note ? `<p class="note" style="margin:6px 0 0">${esc(note)}</p>` : ""}</div>` : `<p class="hint" style="margin:0">We couldn't find where this one is set.</p>`}
+      <div id="pv-place">${settings === null ? `<p class="hint busy" style="margin:0">Finding where it's set…</p>` : placeBlock(s)}</div>
       <div id="d-sum">${sumHTML(parts.sum)}</div>
       ${det.subjects && det.subjects.length ? `<div style="display:flex;gap:6px;flex-wrap:wrap">${det.subjects.slice(0, 3).map(x=>`<span class="tag muted">${esc(x)}</span>`).join("")}</div>` : ""}
       <div class="cta"><button class="btn gold" type="button" id="pv-add">Add to my map</button></div>
