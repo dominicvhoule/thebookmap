@@ -364,4 +364,5 @@ a{color:var(--pin);text-underline-offset:2px}
 #loghead button{background:none;border:0;padding:0 0 2px;font:inherit;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent}
 #loghead button[aria-pressed="true"]{color:var(--ink);border-bottom-color:var(--gold)}
 #loghead button span{font-family:var(--f-mono);font-style:normal;font-size:12px;font-weight:500;color:var(--muted);margin-left:2px}
+.lists{display:contents}
 .btn.want.on{border-color:var(--gold);color:var(--ink);background:color-mix(in srgb,var(--gold) 14%,transparent)}

@@ -153,46 +153,75 @@ async function coverOf(f, size){
   }
   return MM.coverURL(f, size);
 }
-/* ---------- Want to read: each reader's private list (table book_wants) ---------- */
+/* ---------- Want to read / Currently reading: each reader's private lists (table book_wants) ---------- */
+// One row per book; shelf is "want" or "reading", and a book sits on one list at a time (as on Goodreads).
+const LISTS = {want:"Want to read", reading:"Currently reading"};
 let myWants = [], railTab = "read";
+const wantRow = r => ({id:r.id, key:r.book_key, shelf:r.shelf === "reading" ? "reading" : "want", t:r.title, a:r.author || "", y:r.year || "", ol:r.ol_key || "", coverId:r.cover_id || null, isbn:r.isbn || ""});
 async function loadWants(){
   myWants = [];
   if(!(sb && session && me)) return;
   const {data, error} = await sb.from("book_wants").select("*").order("created_at", {ascending:false});
-  if(!error) myWants = (data || []).map(r=>({id:r.id, key:r.book_key, t:r.title, a:r.author || "", y:r.year || "", ol:r.ol_key || "", coverId:r.cover_id || null, isbn:r.isbn || ""}));
+  if(!error) myWants = (data || []).map(wantRow);
 }
+const onList = shelf => myWants.filter(w=>w.shelf === shelf);
 const wantOf = b => myWants.find(w=>w.key === MM.bookKey(b));
-const wantBtn = b => `<button type="button" class="btn ghost small want${wantOf(b) ? " on" : ""}" id="d-want">${wantOf(b) ? "✓ Want to read" : "+ Want to read"}</button>`;
+const wantBtn = b => { const w = wantOf(b);
+  return `<span class="lists" id="d-lists">${Object.entries(LISTS).map(([k, name])=>`<button type="button" class="btn ghost small want${w && w.shelf === k ? " on" : ""}" data-shelf="${k}">${w && w.shelf === k ? "✓ " : "+ "}${name}</button>`).join("")}</span>`; };
+const wantFields = b => ({book_key:MM.bookKey(b), title:String(b.t).slice(0, 400), author:String(b.a || "").slice(0, 300) || null, year:+b.y || null,
+  ol_key:/^OL\d+W$/.test(b.ol || "") ? b.ol : null, cover_id:+b.coverId > 0 ? +b.coverId : null, isbn:String(b.isbn13 || b.isbn || "").slice(0, 20) || null});
 function bindWant(b){
-  const btn = detail.querySelector("#d-want"); if(!btn) return;
-  btn.onclick = async ()=>{
-    if(!(sb && session && me)){ toast("Sign in to keep a Want to read list"); location.hash = "#/account/in"; return; }
-    btn.disabled = true;
+  const box = detail.querySelector("#d-lists"); if(!box) return;
+  const redo = () => { box.outerHTML = wantBtn(b); bindWant(b); if(railTab !== "read") renderList(); else paintRailTabs(); };
+  box.querySelectorAll("button[data-shelf]").forEach(btn=>btn.onclick = async ()=>{
+    if(!(sb && session && me)){ toast("Sign in to keep reading lists"); location.hash = "#/account/in"; return; }
+    const shelf = btn.dataset.shelf, name = LISTS[shelf];
+    box.querySelectorAll("button").forEach(x=>x.disabled = true);
     try{
       const w = wantOf(b);
-      if(w){
+      if(w && w.shelf === shelf){
         const {error} = await sb.from("book_wants").delete().eq("id", w.id); if(error) throw error;
-        myWants = myWants.filter(x=>x !== w); toast("Taken off your Want to read list");
+        myWants = myWants.filter(x=>x !== w); toast(`Taken off your ${name} list`);
+      } else if(w){
+        const {error} = await sb.from("book_wants").update({shelf}).eq("id", w.id); if(error) throw error;
+        w.shelf = shelf; toast(`Moved to ${name}`);
       } else {
-        const row = {book_key:MM.bookKey(b), title:String(b.t).slice(0, 400), author:String(b.a || "").slice(0, 300) || null, year:+b.y || null,
-          ol_key:/^OL\d+W$/.test(b.ol || "") ? b.ol : null, cover_id:+b.coverId > 0 ? +b.coverId : null, isbn:String(b.isbn13 || b.isbn || "").slice(0, 20) || null};
-        const {data, error} = await sb.from("book_wants").insert(row).select().single();
-        if(error){ if(error.code === "23505"){ await loadWants(); btn.outerHTML = wantBtn(b); bindWant(b); return; } throw error; }
-        myWants.unshift({id:data.id, key:row.book_key, t:row.title, a:row.author || "", y:row.year || "", ol:row.ol_key || "", coverId:row.cover_id, isbn:row.isbn || ""});
-        toast("Added to your Want to read list");
+        const {data, error} = await sb.from("book_wants").insert(Object.assign(wantFields(b), {shelf})).select().single();
+        if(error){ if(error.code === "23505"){ await loadWants(); redo(); return; } throw error; }
+        myWants.unshift(wantRow(data)); toast(`Added to ${name}`);
       }
-      btn.outerHTML = wantBtn(b); bindWant(b);
-      if(railTab === "want") renderList(); else paintRailTabs();
-    }catch(e){ btn.disabled = false; toast("Couldn't update your Want to read list. Try again."); }
-  };
+      redo();
+    }catch(e){ box.querySelectorAll("button").forEach(x=>x.disabled = false); toast(`Couldn't update your ${name} list. Try again.`); }
+  });
 }
-// The reading log's heading: on your own map, "Reading log | Want to read (n)".
+// Goodreads export: books on the to-read and currently-reading shelves go on the matching list here.
+// A book that's now on the map (read) comes off the lists. Returns how many were added or moved.
+async function syncLists(entries){
+  if(!(sb && session && me)) return {added:0, moved:0, done:0};
+  await loadWants();
+  const read = myKeys(), byKey = new Map(myWants.map(w=>[w.key, w]));
+  const done = myWants.filter(w=>read.has(w.key));
+  for(let i=0; i<done.length; i+=100){ const {error} = await sb.from("book_wants").delete().in("id", done.slice(i, i+100).map(w=>w.id)); if(error) throw error; }
+  const fresh = [], moves = {want:[], reading:[]}, seen = new Set();
+  for(const e of entries){
+    const k = MM.bookKey(e); if(read.has(k) || onMyMap(e) || seen.has(k)) continue; seen.add(k);
+    const w = byKey.get(k);
+    if(!w) fresh.push(Object.assign(wantFields(e), {shelf:e.shelf}));
+    else if(w.shelf !== e.shelf) moves[e.shelf].push(w.id);
+  }
+  for(let i=0; i<fresh.length; i+=200){ const {error} = await sb.from("book_wants").upsert(fresh.slice(i, i+200), {onConflict:"user_id,book_key", ignoreDuplicates:true}); if(error) throw error; }
+  for(const shelf of Object.keys(moves)) for(let i=0; i<moves[shelf].length; i+=100){ const {error} = await sb.from("book_wants").update({shelf}).in("id", moves[shelf].slice(i, i+100)); if(error) throw error; }
+  await loadWants();
+  return {added:fresh.length, moved:moves.want.length + moves.reading.length, done:done.length};
+}
+// The reading log's heading: on your own map, "Reading log | Currently reading (n) | Want to read (n)".
 function paintRailTabs(){
   const h = $("#loghead"); if(!h) return;
   if(!(viewing.mine && me)){ railTab = "read"; h.textContent = "Reading log"; $("#q").hidden = false; return; }
-  h.innerHTML = `<button type="button" data-tab="read" aria-pressed="${railTab === "read"}">Reading log</button><button type="button" data-tab="want" aria-pressed="${railTab === "want"}">Want to read <span>${myWants.length}</span></button>`;
+  const tab = (k, name, n) => `<button type="button" data-tab="${k}" aria-pressed="${railTab === k}">${name}${n == null ? "" : ` <span>${n}</span>`}</button>`;
+  h.innerHTML = tab("read", "Reading log") + tab("reading", "Currently reading", onList("reading").length) + tab("want", "Want to read", onList("want").length);
   h.querySelectorAll("button").forEach(b=>b.onclick = ()=>{ railTab = b.dataset.tab; renderList(); });
-  $("#q").hidden = railTab === "want";
+  $("#q").hidden = railTab !== "read";
 }
 async function reloadMine(){ try{ myBooks = await Store.load(); }catch(e){ myBooks = []; toast("Couldn't load your books. Check your connection."); } }
 const myKeys = () => new Set(myBooks.map(MM.bookKey));
@@ -675,10 +704,10 @@ function renderList(){
   const ul = $("#films");
   paintRailTabs();
   listObserver && listObserver.disconnect();
-  if(railTab === "want"){
-    const ws = myWants;
+  if(railTab !== "read"){
+    const ws = onList(railTab);
     ul.innerHTML = ws.length ? ws.map((w,i)=>`<li><button data-i="${i}" style="--c:${cloth(w)}"><span class="bar"></span><span class="th" data-i="${i}"></span><span style="min-width:0"><b>${esc(w.t)}</b><span class="meta"><i>${esc(String(w.a).split(" & ")[0])}</i></span></span><span class="r"><em>${esc(w.y)}</em></span></button></li>`).join("")
-      : `<li class="empty">Nothing here yet. Open any book that isn't on your map, from a friend's map, Emily's shelf or "See more like this", and press <b>Want to read</b>.</li>`;
+      : `<li class="empty">Nothing here yet. Open any book that isn't on your map and press <b>${LISTS[railTab]}</b>, or bring in your Goodreads export.</li>`;
     ul.querySelectorAll("button[data-i]").forEach(b=>b.onclick = ()=>openPreview(ws[+b.dataset.i], null));
     if(ws.length) listObserver = lazyCovers(ul, el=>ws[+el.dataset.i], "S");
     return;
@@ -694,7 +723,7 @@ function renderList(){
   markListSelection();
 }
 function markListSelection(){
-  if(railTab === "want") return;
+  if(railTab !== "read") return;
   const list = filtered();
   $("#films").querySelectorAll("button[data-i]").forEach(b=>b.classList.toggle("sel", list[+b.dataset.i] === selected));
 }
@@ -1230,7 +1259,12 @@ function readExport(text){
       y:+(r["Original Publication Year"] || r["Year Published"]) || "", pages:+r["Number of Pages"] || null, r:+r["My Rating"] || null,
       read:day(r["Date Read"]) || "", rv:(r["My Review"] || "").trim() ? 1 : 0, rc:Math.max(1, +r["Read Count"] || 1)};
   });
-  return {books, shelved:rows.length};
+  const lists = rows.filter(r=>r["Exclusive Shelf"] === "to-read" || r["Exclusive Shelf"] === "currently-reading").map(r=>{
+    const c = MM.cleanTitle(r.Title);
+    return {t:c.t, s:c.s, a:r.Author || "", gr:/^\d+$/.test(r["Book Id"] || "") ? r["Book Id"] : "", isbn:isbnOk(r.ISBN), isbn13:isbnOk(r.ISBN13),
+      y:+(r["Original Publication Year"] || r["Year Published"]) || "", shelf:r["Exclusive Shelf"] === "to-read" ? "want" : "reading"};
+  });
+  return {books, lists, shelved:rows.length};
 }
 let importing = false;
 async function importGoodreadsExport(file, status, button){
@@ -1241,7 +1275,16 @@ async function importGoodreadsExport(file, status, button){
     say("Reading your export…");
     const got = readExport(await file.text());
     if(!got){ say("That file doesn't look like a Goodreads export. Choose goodreads_library_export.csv, the file Goodreads gives you."); return; }
-    const {books} = got;
+    const {books, lists} = got;
+    // The to-read and currently-reading shelves go on the reading lists (after the map, so books just read come off them).
+    const listNote = async () => {
+      if(!lists.length || !(sb && session && me)) return "";
+      try{
+        await syncLists(lists); if(viewing.mine) renderList();
+        const n = onList("want").length, c = onList("reading").length;
+        return ` Want to read: ${n} book${n===1?"":"s"}; Currently reading: ${c}.`;
+      }catch(err){ return " Couldn't update your reading lists this time; try the file again."; }
+    };
     const haveGr = new Set(myBooks.map(b=>b.gr).filter(Boolean)), have = myKeys();
     // Books already on the map: bring their ratings and read counts up to date with the export.
     const byKey = new Map(myBooks.map(f=>[MM.bookKey(f), f])), byGr = new Map(myBooks.filter(f=>f.gr).map(f=>[f.gr, f]));
@@ -1255,7 +1298,7 @@ async function importGoodreadsExport(file, status, button){
       if(Object.keys(patch).length){ try{ await Store.update(f, patch); updated++; }catch(err){} }
     }
     const todo = books.filter(e=>!(e.gr && haveGr.has(e.gr)) && !have.has(MM.bookKey(e)));
-    if(!todo.length){ say(`All ${books.length} books from your Read shelf are already on your map${updated ? `; updated ${updated}` : ""}.`); if(updated && viewing.mine) renderAll(); return; }
+    if(!todo.length){ if(lists.length) say("Updating your reading lists…"); const ln = await listNote(); say(`All ${books.length} books from your Read shelf are already on your map${updated ? `; updated ${updated}` : ""}.${ln}`); if(updated && viewing.mine) renderAll(); return; }
     let added = 0, missed = [];
     for(let i=0; i<todo.length; i+=40){
       const part = todo.slice(i, i+40);
@@ -1265,13 +1308,14 @@ async function importGoodreadsExport(file, status, button){
       missed.push(...r.missed);
     }
     await reloadMine();
+    const ln = await listNote();
     const prev = MM.lsGet(grReportKey(), null) || {missed:[], total:0};
     const byId = new Map(); [...prev.missed, ...missed].forEach(m=>byId.set(m.gr || MM.bookKey(m), m));
     MM.lsSet(grReportKey(), {total:Math.max(prev.total || 0, books.length), full:true, missed:[...byId.values()]});
     if(viewing.mine){ viewing.films = myBooks; renderAll(); fitPins(true); }
     toast(`Added ${added} book${added===1?"":"s"} from your Goodreads export`);
     renderImport();
-    const s2 = $("#grcs"); if(s2) s2.textContent = `Done: ${added} added${missed.length ? `, ${missed.length} need${missed.length===1?"s":""} a pin (listed above)` : ""}.`;
+    const s2 = $("#grcs"); if(s2) s2.textContent = `Done: ${added} added${missed.length ? `, ${missed.length} need${missed.length===1?"s":""} a pin (listed above)` : ""}.${ln}`;
   }catch(e){ say("Couldn't read that file. Try the CSV exactly as Goodreads sent it."); }
   finally{ importing = false; if(button) button.removeAttribute("aria-disabled"); }
 }
