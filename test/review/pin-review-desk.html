@@ -162,18 +162,20 @@ const ERR_COPY = {
 };
 const errText = e => (e && ERR_COPY[e.code]) || ("Something went wrong talking to Supabase" + (e && e.message ? ": " + e.message : "."));
 
+const COUNTRY_ALIAS = {england:"unitedkingdom", scotland:"unitedkingdom", wales:"unitedkingdom", northernireland:"unitedkingdom", uk:"unitedkingdom", greatbritain:"unitedkingdom", britain:"unitedkingdom", usa:"unitedstates", us:"unitedstates", unitedstatesofamerica:"unitedstates", ussr:"russia", sovietunion:"russia"};
+const country = c => { const n = norm(c); return COUNTRY_ALIAS[n] || n; };
 function placeKey(a){
   if(!a) return "x";
   if(a.type === "invented") return "inv|" + norm((a.world||"").split(/[(,]/)[0]);
   const m = a.main || {};
-  return a.type + "|" + norm(m.country) + "|" + norm((m.place||"").split(",")[0]);
+  return a.type + "|" + country(m.country) + "|" + norm((m.place||"").split(",")[0]);
 }
 function agreement(b){
   const keys = MODELS.map(([k]) => placeKey(b.ans[k]));
   const types = MODELS.map(([k]) => b.ans[k] && b.ans[k].type);
   if(keys.every(k => k === keys[0])) return "agree";
   if(types.every(t => t && t === types[0]) && types[0] !== "invented"){
-    const cs = MODELS.map(([k]) => norm(b.ans[k]?.main?.country));
+    const cs = MODELS.map(([k]) => country(b.ans[k]?.main?.country));
     if(cs.every(c => c === cs[0])) return "close";
   }
   return "differ";
