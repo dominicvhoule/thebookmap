@@ -901,6 +901,27 @@ function showMap(owner, films, mine){
   const shown = viewing.films;
   if(shown.some(f=>!f.g)) MM.genresOf(shown).then(()=>{ if(viewing.films === shown) renderGenres(); }).catch(()=>{});
 }
+// Emily's starter shelf has no hand-checked places any more: her books are placed by the same pipeline as
+// everyone's (shared pins first), once per page load, and the map fills in when they're ready.
+let featuredReady = null, featuredPlaced = [];
+function placeFeatured(){
+  if(featuredReady) return featuredReady;
+  featuredReady = (async ()=>{
+    const books = FEATURED.books;
+    const dets = await MM.pool(books, 3, async f=>f.ol ? {t:f.t, a:f.a, y:f.y, ol:f.ol, coverId:f.coverId}
+      : Object.assign({}, (await MM.matchBook(f).catch(()=>null)) || {}, {t:f.t, a:f.a, y:f.y}));
+    const settings = await MM.resolveSettings(dets);
+    featuredPlaced = books.map((f,i)=>settings[i] ? Object.assign({}, f, {qid:dets[i].qid || f.qid, ol:f.ol || dets[i].ol, coverId:f.coverId || dets[i].coverId}, settings[i]) : null).filter(Boolean);
+    return featuredPlaced;
+  })().catch(e=>{ featuredReady = null; throw e; });
+  return featuredReady;
+}
+function showFeatured(){
+  showMap(FEATURED, featuredPlaced, false);
+  if(featuredPlaced.length === FEATURED.books.length && featuredReady) return;
+  $("#whose-k").textContent = "Placing Emily's books…";
+  placeFeatured().then(list=>{ if(viewing.owner === FEATURED){ showMap(FEATURED, list, false); } }).catch(()=>{ if(viewing.owner === FEATURED) $("#whose-k").textContent = "Starter shelf"; });
+}
 function showMine(){
   const owner = me ? Object.assign({}, me) : {name:"Your map", username:"", bio:"Saved in this browser"};
   showMap(owner, myBooks, true);
@@ -1707,7 +1728,7 @@ async function route(){
     setNav(""); showPanel("map");
     const name = decodeURIComponent(b).toLowerCase();
     if(me && name === me.username){ setNav("home"); return showMine(); }
-    if(name === FEATURED.username) return showMap(FEATURED, FEATURED.books, false);
+    if(name === FEATURED.username) return showFeatured();
     if(sb){
       const {data:p} = await sb.from("profiles").select("*").eq("username", name).maybeSingle();
       if(p){ const films = booksReady ? await fetchLogs(p.id).catch(()=>[]) : []; return showMap(p, films, false); }
@@ -1746,7 +1767,7 @@ function showBackdrop(){
 }
 function showFeaturedOrMine(){
   if(me || myBooks.length) return showMine();
-  showMap(FEATURED, FEATURED.books, false);
+  showFeatured();
 }
 window.addEventListener("hashchange", route);
 // The logo always goes home, even when the page is already on the map.

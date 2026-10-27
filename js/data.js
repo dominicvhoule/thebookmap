@@ -319,14 +319,14 @@ MM.fallbackSetting = function(det){
 
 // Settings found for each book, kept in this browser (and shared through Supabase when signed in).
 MM.settingCache = {
-  get(k){ return lsGet("bm-set1:" + k, null); },
-  put(k, s){ lsSet("bm-set1:" + k, s); }
+  get(k){ return lsGet("bm-set2:" + k, null); },
+  put(k, s){ lsSet("bm-set2:" + k, s); }
 };
 // Hand-checked settings (the starter shelf), matched by title and author.
 MM.curated = function(det){
   const list = window.FEATURED && window.FEATURED.books; if(!list || !det) return null;
   const k = MM.bookKey(det);
-  const f = list.find(x=>MM.bookKey(x) === k);
+  const f = list.find(x=>MM.bookKey(x) === k && x.lat != null);
   return f ? {p:f.p, c:f.c, cont:f.cont || "", lat:f.lat, lon:f.lon, ap:f.ap ? 1 : 0, n:f.n || "", src:"curated"} : null;
 };
 
