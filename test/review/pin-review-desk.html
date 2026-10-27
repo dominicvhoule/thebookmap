@@ -112,10 +112,10 @@ kbd{font:500 11px var(--f-mono);border:1px solid var(--line);border-bottom-width
       <option value="todo">To review</option><option value="done">Reviewed</option><option value="skip">Skipped</option><option value="all">All books</option>
     </select>
     <select id="f-pool" aria-label="Picked as">
-      <option value="">All types</option><option value="real">Picked as real place</option><option value="invented">Picked as invented world</option><option value="nosetting">Picked as no setting</option>
+      <option value="">All types</option><option value="real">Picked as real place</option><option value="invented">Picked as invented world</option><option value="nosetting">Picked as no setting</option><option value="goodreads">From your Goodreads</option>
     </select>
     <select id="f-band" aria-label="Fame">
-      <option value="">Well-known and lesser-known</option><option value="popular">Well-known</option><option value="lesser">Lesser-known</option>
+      <option value="">Well-known and lesser-known</option><option value="popular">Well-known</option><option value="lesser">Lesser-known</option><option value="owner">Your own books</option>
     </select>
     <select id="f-order" aria-label="Order">
       <option value="differ">Models disagree first</option><option value="id">Book number</option>
@@ -133,7 +133,8 @@ kbd{font:500 11px var(--f-mono);border:1px solid var(--line);border-bottom-width
 <script>
 const MODELS = [["haiku","Haiku"],["sonnet","Sonnet"],["opus","Opus"]];
 const TYPE_LABEL = {real:"Real place", invented:"Invented world", none:"No setting"};
-const POOL_LABEL = {real:"real place", invented:"invented world", nosetting:"no setting"};
+const POOL_LABEL = {real:"picked as real place", invented:"picked as invented world", nosetting:"picked as no setting", goodreads:"from your Goodreads"};
+const BAND_LABEL = {popular:"well-known", lesser:"lesser-known", owner:"your Read shelf"};
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const norm = s => String(s ?? "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[^a-z0-9]/g,"");
@@ -171,11 +172,13 @@ function placeKey(a){
   return a.type + "|" + country(m.country) + "|" + norm((m.place||"").split(",")[0]);
 }
 function agreement(b){
-  const keys = MODELS.map(([k]) => placeKey(b.ans[k]));
-  const types = MODELS.map(([k]) => b.ans[k] && b.ans[k].type);
+  // Only models that were run on this book count (Opus was run on the Goodreads books only).
+  const ran = MODELS.filter(([k]) => b.ans[k] || (b.err[k] && b.err[k] !== "canceled"));
+  const keys = ran.map(([k]) => placeKey(b.ans[k]));
+  const types = ran.map(([k]) => b.ans[k] && b.ans[k].type);
   if(keys.every(k => k === keys[0])) return "agree";
   if(types.every(t => t && t === types[0]) && types[0] !== "invented"){
-    const cs = MODELS.map(([k]) => country(b.ans[k]?.main?.country));
+    const cs = ran.map(([k]) => country(b.ans[k]?.main?.country));
     if(cs.every(c => c === cs[0])) return "close";
   }
   return "differ";
@@ -220,6 +223,7 @@ function renderList(){
 
 function answerCard(k, name, a, v, err){
   const judged = v && v.right ? v.right[k] : null;
+  if(!a && (!err || err === "canceled")) return `<article class="ans" data-k="${k}"><header><h3>${name}</h3></header><p class="sub">Not run on this book.</p></article>`;
   let body;
   if(!a){ body = `<p class="err">No usable answer${err ? " (" + esc(err) + ")" : ""}.</p>`; }
   else{
@@ -258,7 +262,7 @@ function drawBook(){
   $("#book").innerHTML = `
     <h2>${esc(b.t)}</h2>
     <p class="meta">${esc(b.a)}${b.y ? " · " + esc(b.y) : ""} · book #${b.id}</p>
-    <div class="tags"><span class="tag">picked as ${POOL_LABEL[b.pool]}</span><span class="tag">${b.band === "popular" ? "well-known" : "lesser-known"}</span>
+    <div class="tags"><span class="tag">${POOL_LABEL[b.pool] || esc(b.pool)}</span><span class="tag">${BAND_LABEL[b.band] || esc(b.band)}</span>
       ${b.agree === "differ" ? `<span class="tag warn">models disagree</span>` : b.agree === "close" ? `<span class="tag warn">same country, different place</span>` : `<span class="tag">models agree</span>`}</div>
     ${b.desc ? `<details class="desc"><summary>Catalogue description the models saw</summary><p>${esc(b.desc)}</p></details>` : `<p class="hint">No catalogue description: models answered from what they know.</p>`}
     <div class="models">${MODELS.map(([k, name]) => answerCard(k, name, b.ans[k], d, b.err?.[k])).join("")}</div>
@@ -358,18 +362,16 @@ async function start(){
   try{ mcp = await window.claude?.use?.("mcp"); }catch(e){ mcp = null; }
   if(!mcp){ book.innerHTML = `<div class="empty">This page reads the test from Supabase through your connector, which only works on claude.ai while you're signed in.</div>`; return; }
   try{
-    const pages = [[1, 250], [251, 500], [501, 750], [751, 1000]];
+    const pages = [[1, 250], [251, 500], [501, 750], [751, 1000], [1001, 1250]];
     book.innerHTML = `<div class="empty">Loading the test books and the models' answers…</div>`;
     const parts = [];
-    for(const [a, b] of pages){ const rows = await sql(PAGE_SQL(a, b)); parts.push(...((rows[0] && rows[0].j) || [])); book.innerHTML = `<div class="empty">Loaded ${parts.length} of 999 books…</div>`; }
+    for(const [a, b] of pages){ const rows = await sql(PAGE_SQL(a, b)); parts.push(...((rows[0] && rows[0].j) || [])); book.innerHTML = `<div class="empty">Loaded ${parts.length} books…</div>`; }
     BOOKS = parts; BOOKS.forEach(b => { b.ans = b.ans || {}; b.err = b.err || {}; b.agree = agreement(b); byId.set(b.id, b); });
     const v = await sql(`select coalesce(json_object_agg(book_id, verdict), '{}') as v from loc_test_verdicts;`);
     verdicts = (v[0] && v[0].v) || {};
   }catch(e){ book.innerHTML = `<div class="empty">${esc(errText(e))}</div>`; return; }
   const answered = BOOKS.filter(b => Object.keys(b.ans).length).length;
   if(!answered){ book.innerHTML = `<div class="empty">The models are still working through the books. Check back in a little while.</div>`; renderScores(); return; }
-  const missing = MODELS.filter(([k]) => !BOOKS.some(b => b.ans[k] || b.err[k])).map(m => m[1]);
-  if(missing.length) toast(missing.join(" and ") + (missing.length > 1 ? " are" : " is") + " still working. Reload later to see their answers.");
   renderScores(); renderList(); if(queue.length) openBook(queue[0].id); else book.innerHTML = `<div class="empty">Every book here is reviewed. Change the filter to see them.</div>`;
 }
 start();
