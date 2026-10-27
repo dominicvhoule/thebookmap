@@ -10,7 +10,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Libre+Bodoni:ital,wght@0,500;0,700;1,500;1,700&family=Literata:opsz,wght@7..72,400;7..72,500;7..72,600&family=Spline+Sans+Mono:wght@400;500&display=swap">
 <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
-<link rel="stylesheet" href="styles.css?v=202610252330">
+<link rel="stylesheet" href="styles.css?v=202610262130">
 </head>
 <body>
 <header class="mast">
@@ -31,11 +31,10 @@
   <section class="mapwrap" aria-label="Map">
     <div id="map" role="region" aria-label="World map of where your books are set"></div>
     <div class="mapbar">
-      <div class="whose"><small id="whose-k">Loading</small><h2 id="whose-h">Your map</h2></div>
+      <div class="whose"><small id="whose-k">Loading</small><h2 id="whose-h">Your map</h2><div class="genres" id="genres" hidden></div></div>
       <div class="mapside"><div class="viewtog" role="group" aria-label="Show as"><button type="button" data-v="map" aria-pressed="true">Map</button><button type="button" data-v="list" aria-pressed="false">List</button><button type="button" data-v="stats" aria-pressed="false">Stats</button></div>
       <div class="zoom"><button id="zin" aria-label="Zoom in">+</button><button id="zout" aria-label="Zoom out">−</button><button id="zfit" aria-label="Fit all pins">⤢</button></div></div>
     </div>
-    <div class="genres" id="genres" role="group" aria-label="Show books by genre" hidden></div>
     <div class="clist" id="clist" hidden></div>
     <div class="pickhint" id="pickhint" hidden>Tap the map where the book takes place</div>
     <div class="legend"><span><i></i>Named setting</span><span><i class="a"></i>Approximate or invented town</span><span><i class="c"></i>Country read</span></div>
@@ -70,11 +69,11 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/topojson/3.0.2/topojson.min.js"></script>
 <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
-<script src="config.js?v=202610252330"></script>
-<script src="js/featured.js?v=202610252330"></script>
-<script src="js/data.js?v=202610252330"></script>
-<script src="js/wikiplot.js?v=202610252330"></script>
-<script src="js/poster.js?v=202610252330"></script>
-<script src="js/app.js?v=202610252330"></script>
+<script src="config.js?v=202610262130"></script>
+<script src="js/featured.js?v=202610262130"></script>
+<script src="js/data.js?v=202610262130"></script>
+<script src="js/wikiplot.js?v=202610262130"></script>
+<script src="js/poster.js?v=202610262130"></script>
+<script src="js/app.js?v=202610262130"></script>
 </body>
 </html>

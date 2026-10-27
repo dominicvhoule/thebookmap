@@ -458,26 +458,62 @@ function groupBooks(list){
   return groups;
 }
 let genreSel = "";   // the genre the map is narrowed to ("" = every book)
+// The genre menu offers a short list of broad genres; each one gathers the finer genres books are tagged with.
+const GENRE_MENU = [
+  ["Classics", ["Classics"]],
+  ["Mystery & thriller", ["Mystery & crime", "Thriller"]],
+  ["Sci-fi & fantasy", ["Science fiction", "Fantasy"]],
+  ["Romance", ["Romance"]],
+  ["Horror", ["Horror"]],
+  ["Young adult", ["Young adult"]],
+  ["Poetry", ["Poetry"]],
+  ["History", ["History", "Historical fiction"]],
+  ["Biography", ["Memoir & biography"]],
+  ["Philosophy & religion", ["Philosophy", "Religion"]],
+  ["Science", ["Science & nature"]],
+  ["Politics & society", ["Politics & society"]],
+];
+const GENRE_OF = Object.fromEntries(GENRE_MENU);
+const inGenre = (f, sel) => !sel || (f.g || []).some(x=>GENRE_OF[sel].includes(x));
 function filtered(){
   const q = ($("#q").value||"").toLowerCase().trim();
   let list = viewing.films;
-  if(genreSel) list = list.filter(f=>(f.g || []).includes(genreSel));
+  if(genreSel) list = list.filter(f=>inGenre(f, genreSel));
   return q ? list.filter(f=>[f.t,f.a,f.p,f.c,f.s].join(" ").toLowerCase().includes(q)) : list;
 }
-// The genre chips across the top of the map: tap one to see only those books (and where they're set).
+// The genre menu under the map's title: pick one to see only those books (and where they're set).
+function pickGenre(g){
+  genreSel = g;
+  closeDetail(); setOwnerHeader(); renderGenres(); renderPins(); renderList(); renderCTA(); if(mapView !== "map") renderCountryList(true); fitPins(true);
+}
 function renderGenres(){
   const el = $("#genres"); if(!el) return;
   const films = viewing.films || [];
-  const count = {}; films.forEach(f=>(f.g || []).forEach(g=>count[g] = (count[g] || 0) + 1));
-  const list = MM.GENRES.filter(g=>count[g]);
+  const count = {}; GENRE_MENU.forEach(([g])=>{ count[g] = films.filter(f=>inGenre(f, g)).length; });
+  const list = GENRE_MENU.map(([g])=>g).filter(g=>count[g]);
   if(viewing.owner && viewing.owner.welcome || !list.length){ el.hidden = true; el.innerHTML = ""; return; }
   if(genreSel && !count[genreSel]) genreSel = "";
   el.hidden = false;
-  el.innerHTML = `<button type="button" data-g="" aria-pressed="${!genreSel}">All <span>${films.length}</span></button>` +
-    list.map(g=>`<button type="button" data-g="${esc(g)}" aria-pressed="${genreSel === g}">${esc(g)} <span>${count[g]}</span></button>`).join("");
-  el.querySelectorAll("button").forEach(b=>b.onclick = ()=>{
-    genreSel = b.dataset.g === genreSel ? "" : b.dataset.g;
-    closeDetail(); setOwnerHeader(); renderGenres(); renderPins(); renderList(); renderCTA(); if(mapView !== "map") renderCountryList(true); fitPins(true);
+  const opt = (g, label, n) => `<li role="option" tabindex="-1" data-g="${esc(g)}" aria-selected="${genreSel === g}">${esc(label)}<span>${n}</span></li>`;
+  el.innerHTML = `<button type="button" class="gbtn" aria-haspopup="listbox" aria-expanded="false">${esc(genreSel || "All genres")}<span>${genreSel ? count[genreSel] : films.length}</span><i aria-hidden="true">▾</i></button>
+    <ul class="gmenu" role="listbox" aria-label="Genre" hidden>${opt("", "All genres", films.length)}${list.map(g=>opt(g, g, count[g])).join("")}</ul>`;
+  const btn = el.querySelector(".gbtn"), menu = el.querySelector(".gmenu");
+  const close = () => { menu.hidden = true; btn.setAttribute("aria-expanded", "false"); document.removeEventListener("pointerdown", outside, true); };
+  const outside = e => { if(!el.contains(e.target)) close(); };
+  btn.onclick = () => {
+    if(!menu.hidden) return close();
+    menu.hidden = false; btn.setAttribute("aria-expanded", "true");
+    document.addEventListener("pointerdown", outside, true);
+    (menu.querySelector('[aria-selected="true"]') || menu.firstElementChild).focus();
+  };
+  menu.querySelectorAll("li").forEach(li=>{
+    li.onclick = () => { close(); pickGenre(li.dataset.g); el.querySelector(".gbtn").focus(); };
+    li.onkeydown = e => {
+      if(e.key === "Enter" || e.key === " "){ e.preventDefault(); li.click(); }
+      else if(e.key === "ArrowDown"){ e.preventDefault(); (li.nextElementSibling || li).focus(); }
+      else if(e.key === "ArrowUp"){ e.preventDefault(); (li.previousElementSibling || li).focus(); }
+      else if(e.key === "Escape"){ close(); btn.focus(); }
+    };
   });
 }
 const ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M5 4.5A2.5 2.5 0 0 1 7.5 2H19v16H7.5a1 1 0 0 0 0 2H19v2H7.5A2.5 2.5 0 0 1 5 19.5v-15Zm3 .5v2h8V5H8Z"/></svg>';
@@ -775,8 +811,8 @@ function setOwnerHeader(){
   const av = $("#av"); av.textContent = (name||"?")[0]; av.style.background = MM.avatarColor(o.username || name);
   $("#uname").textContent = name;
   $("#ubio").textContent = [o.username ? "@" + o.username : "", o.bio].filter(Boolean).join(" · ");
-  // The numbers follow the genre chip, so "Philosophy" shows how many philosophy books and where.
-  const shown = genreSel ? viewing.films.filter(f=>(f.g || []).includes(genreSel)) : viewing.films;
+  // The numbers follow the genre menu, so "Philosophy" shows how many philosophy books and where.
+  const shown = genreSel ? viewing.films.filter(f=>inGenre(f, genreSel)) : viewing.films;
   const ctry = new Set(shown.map(f=>MM.geoName(f.c)).filter(Boolean));
   const cont = new Set(shown.map(contOf).filter(Boolean));
   const authors = new Set(shown.map(f=>MM.norm(String(f.a||"").split(" & ")[0])).filter(Boolean));
@@ -802,7 +838,7 @@ function renderList(){
   }
   const list = filtered();
   if(!list.length){
-    ul.innerHTML = `<li class="empty">${viewing.films.length ? "No books match that filter." : viewing.mine ? 'No books yet. <a href="#/log">Log a book</a> or <a href="#/import">link Goodreads</a>.' : "No books logged yet."}</li>`;
+    ul.innerHTML = `<li class="empty">${viewing.films.length ? "No books match that filter." : viewing.mine ? 'No books yet. <a href="#/log">Log a book</a> or <a href="#/import">import from Goodreads</a>.' : "No books logged yet."}</li>`;
     return;
   }
   ul.innerHTML = list.map((f,i)=>`<li><button data-i="${i}" style="--c:${cloth(f)}"><span class="bar ${f.ap?"ap":""}"></span><span class="th" data-i="${i}" data-t="${esc(f.t)}"></span><span style="min-width:0"><b>${esc(f.t)}</b><span class="meta"><i>${esc(f.a.split(" & ")[0])}</i>${f.a && placeLine(f) ? " · " : ""}${esc(placeLine(f))}</span></span><span class="r">${stars(f.r)}<em>${esc((f.read || "").slice(0, 4) || f.y)}</em></span></button></li>`).join("");
@@ -853,7 +889,6 @@ async function renderCTA(){
     cta.prepend(b);
   }
   if(POSTERS && viewing.films.length){ const a = document.createElement("a"); a.className = "btn ghost"; a.href = "#/poster"; a.textContent = "Poster"; cta.append(a); }
-  if(o.goodreads_id){ const a = document.createElement("a"); a.className = "btn ghost"; a.href = "https://www.goodreads.com/user/show/" + encodeURIComponent(o.goodreads_id); a.target = "_blank"; a.rel = "noopener"; a.textContent = "Goodreads ↗"; cta.append(a); }
 }
 function renderAll(){ setOwnerHeader(); renderGenres(); renderPins(); renderList(); renderCTA(); renderCountryList(); }
 
@@ -1315,7 +1350,7 @@ async function refreshSettings(force){
 }
 function maybeAutoSync(){
   if(cloud()) refreshSettings(false);
-  if(!grLinked()) return;
+  return;   // Goodreads comes in only through the library export now; profile linking was removed.
   const last = MM.lsGet(grSyncKey(), 0);
   const rep = MM.lsGet(grReportKey(), null);
   // Quick check (newest page) every 6 hours; a full re-read of the whole shelf once a week.
@@ -1411,76 +1446,31 @@ async function importGoodreadsExport(file, status, button){
   finally{ importing = false; if(button) button.removeAttribute("aria-disabled"); }
 }
 
-let grEditing = false;   // the linked profile stays locked until "Change profile" is clicked
 function renderImport(){
   const el = $("#import");
-  if(signedOut()) return needAccount(el, "Goodreads", "link your Goodreads and bring in your books");
+  if(signedOut()) return needAccount(el, "Goodreads", "import your Goodreads library and bring in your books");
   showMine_keepView();
-  const link = grLinked();
-  const last = MM.lsGet(grSyncKey(), 0);
   const rep = MM.lsGet(grReportKey(), null);
   const missing = rep ? rep.missed.filter(m=>!onMyMap(m)) : [];
-  const profileURL = id => "https://www.goodreads.com/user/show/" + encodeURIComponent(id);
   el.innerHTML = `<h2 class="h">Goodreads</h2>
-    <h3 class="step"><span>1</span>Link your Goodreads</h3>
-    <p class="hint">Brings in up to 6,000 books from your Read shelf, then new ones automatically. No password needed.</p>
-    <p class="notice" style="margin:0">Linking only works for a <b>public</b> Goodreads profile and loads at most <b>6,000 books</b>. If your profile is private or you've read more than 6,000 books, use the export in step 2 to bring in everything.</p>
-    ${sb ? `
-    ${link && !grEditing ? `
-    <div class="linked">
-      <div style="min-width:0"><small>Linked profile</small><b><a href="${profileURL(link.id)}" target="_blank" rel="noopener">${esc(link.name || "goodreads.com/user/show/" + link.id)}</a></b></div>
-      <div class="cta"><button class="btn ghost" type="button" id="grcheck">Check now</button><button class="btn ghost" type="button" id="grchange">Change profile</button></div>
-    </div>
-    <p class="hint" id="grs">New books are added automatically.${last ? " Last checked " + new Date(last).toLocaleString([], {dateStyle:"medium", timeStyle:"short"}) + "." : ""}</p>`
-    : `
-    <form class="search" id="grf"><label for="gru" class="sr">Goodreads profile link or username</label><input id="gru" autocomplete="off" spellcheck="false" placeholder="Your Goodreads profile link or username"><button class="btn" type="submit">Connect</button>${grEditing ? `<button class="btn ghost" type="button" id="grcancel">Cancel</button>` : ""}</form>
-    <p class="hint" id="grs">${grEditing && link ? `Currently linked to ${esc(link.name || link.id)}. Books already on your map stay there.` : "Find it on Goodreads under My Profile, then copy the page's link. Your profile needs to be public."}</p>`}
-    ${rep ? `<div class="box">
-      <p class="ok" style="margin:0"><b>${rep.total} book${rep.total===1?"":"s"}</b> ${rep.total >= 6000 ? "loaded (the most linking can bring in)" : "on your Read shelf"}${missing.length ? `, <b>${missing.length}</b> still need${missing.length===1?"s":""} a pin` : ", all on your map"}.</p>
-      ${missing.length ? `<p class="hint">We couldn't work out where ${missing.length===1 ? "this one takes" : "these take"} place. Tap Place it to pin ${missing.length===1 ? "it" : "each one"} yourself.</p>
-      <ul class="results">${missing.slice(0, 200).map((m,i)=>`<li><button data-i="${i}"><span class="th" style="--c:${cloth(m)};${MM.coverURL(m,"S") ? `background-image:url('${esc(MM.coverURL(m,"S"))}')` : ""}"></span><span style="min-width:0"><b>${esc(m.t)}</b><span class="m">${esc(m.a)}</span><span class="m" style="color:var(--rust)"> · Place it →</span></span></button></li>`).join("")}</ul>` : ""}
-    </div>` : ""}
-    ${!cloud() ? `<p class="notice">${me ? "Books save in this browser for now." : '<a href="#/account">Sign in</a> to keep your books on your account and update them every day.'}</p>` : ""}`
-    : `<p class="notice">Goodreads linking isn't switched on for this site yet.</p>`}
-    <h3 class="step"><span>2</span>Private profile or over 6,000 books? Use your export</h3>
-    <p class="hint">Goodreads can export your whole library as one file, with no limit on how many books. Do this once if your profile is private or your Read shelf has more than 6,000 books. Linking still adds new ones after that.</p>
+    <p class="hint">Bring in every book you've read on Goodreads, with your ratings and dates read. Goodreads exports your whole library as one file, with no limit on how many books, and it works whether your profile is public or private.</p>
     <ol class="howto">
       <li><a href="https://www.goodreads.com/review/import" target="_blank" rel="noopener">Export your library ↗</a><span>on Goodreads, then Export Library</span></li>
       <li><b>Save the CSV file</b><span>goodreads_library_export.csv</span></li>
       <li><label class="btn" for="grcsv" tabindex="0">Choose the file</label><input type="file" id="grcsv" accept=".csv,text/csv" hidden></li>
     </ol>
-    <p class="hint" id="grcs" aria-live="polite"></p>`;
+    <p class="hint" id="grcs" aria-live="polite"></p>
+    <p class="hint">Read more books since? Export again and import the new file: books already on your map are skipped.</p>
+    ${rep ? `<div class="box">
+      <p class="ok" style="margin:0"><b>${rep.total} book${rep.total===1?"":"s"}</b> imported${missing.length ? `, <b>${missing.length}</b> still need${missing.length===1?"s":""} a pin` : ", all on your map"}.</p>
+      ${missing.length ? `<p class="hint">We couldn't work out where ${missing.length===1 ? "this one takes" : "these take"} place. Tap Place it to pin ${missing.length===1 ? "it" : "each one"} yourself.</p>
+      <ul class="results">${missing.slice(0, 200).map((m,i)=>`<li><button data-i="${i}"><span class="th" style="--c:${cloth(m)};${MM.coverURL(m,"S") ? `background-image:url('${esc(MM.coverURL(m,"S"))}')` : ""}"></span><span style="min-width:0"><b>${esc(m.t)}</b><span class="m">${esc(m.a)}</span><span class="m" style="color:var(--rust)"> · Place it →</span></span></button></li>`).join("")}</ul>` : ""}
+    </div>` : ""}
+    ${!cloud() ? `<p class="notice">${me ? "Books save in this browser for now." : '<a href="#/account">Sign in</a> to keep your books on your account.'}</p>` : ""}`;
   el.querySelectorAll(".results button").forEach(b=>b.onclick = ()=>{ pendingLog = missing[+b.dataset.i]; location.hash = "#/log"; });
   const csv = $("#grcsv"), cl = el.querySelector('label[for="grcsv"]');
   if(cl) cl.onkeydown = e=>{ if(e.key === "Enter" || e.key === " "){ e.preventDefault(); csv.click(); } };
   if(csv) csv.onchange = ()=>{ if(csv.files.length) importGoodreadsExport(csv.files[0], $("#grcs"), cl); };
-  const ch = $("#grchange"); if(ch) ch.onclick = ()=>{ grEditing = true; renderImport(); $("#gru").focus(); };
-  const ck = $("#grcheck"); if(ck) ck.onclick = async ()=>{ ck.disabled = true; const s = $("#grs"); s.classList.add("busy"); await syncGoodreads({full:true, progress:m=>{ s.textContent = m; }}); renderImport(); };
-  const cc = $("#grcancel"); if(cc) cc.onclick = ()=>{ grEditing = false; renderImport(); };
-  const f = $("#grf");
-  if(f) f.onsubmit = async ev=>{
-    ev.preventDefault();
-    const s = $("#grs"), btn = f.querySelector("button");
-    const user = $("#gru").value.trim();
-    if(user.length < 2){ s.textContent = "Paste your Goodreads profile link, or type your username."; return; }
-    btn.disabled = true; s.textContent = "Checking your Goodreads profile…"; s.classList.add("busy");
-    try{
-      let d;
-      try{ d = await grInvoke({user}); }
-      catch(e){ s.classList.remove("busy"); s.textContent = GR_ERRORS[e.message] || "Couldn't reach Goodreads. Try again."; return; }
-      const cur = grLinked();
-      if(!cur || cur.id !== d.id){
-        try{ await setGrLinked({id:d.id, name:d.name || ""}); }
-        catch(e){ s.classList.remove("busy"); s.textContent = "Couldn't save your Goodreads link. Try again."; return; }
-        MM.lsSet(grReportKey(), null);   // the old profile's report no longer applies
-      }
-      grEditing = false;
-      const r = await syncGoodreads({full:true, progress: msg=>{ s.textContent = msg; }});
-      if(r && !r.error) MM.lsSet(grSyncKey() + ":full", Date.now());
-      renderImport();
-      if(!r || r.error){ const s2 = $("#grs"); if(s2) s2.textContent = (r && GR_ERRORS[r.error]) || "Sync didn't go through. Try again."; }
-    }finally{ btn.disabled = false; }
-  };
 }
 
 /* ---------- poster ---------- */
@@ -1504,7 +1494,7 @@ function renderPoster(){
   const seg = (name, items) => `<div class="seg" role="group" aria-label="${name}">${items}</div>`;
   el.innerHTML = `<h2 class="h">Poster</h2>
     <p class="hint">${esc(posterTitle())}, ready to print, landscape. One pin per country, a list by country, and your stats.</p>
-    ${viewing.mine ? "" : `<p class="hint" style="margin:0">This is a sample made from ${esc(viewing.owner && viewing.owner.name || "the starter")}'s map. <a href="#/log">Log books</a> or <a href="#/import">link Goodreads</a> and this page will make a poster of yours.</p>`}
+    ${viewing.mine ? "" : `<p class="hint" style="margin:0">This is a sample made from ${esc(viewing.owner && viewing.owner.name || "the starter")}'s map. <a href="#/log">Log books</a> or <a href="#/import">import from Goodreads</a> and this page will make a poster of yours.</p>`}
     <div class="pv busy" id="pv">Drawing your poster…</div>
     <div class="opts">
       <div class="field">Style${seg("Style", Object.entries(MM.POSTER_THEMES).map(([k,t])=>`<button type="button" data-theme="${k}" aria-pressed="${posterOpts.theme===k}"><i style="background:${t.bg};box-shadow:inset -8px 0 0 ${t.pin}"></i>${t.label}</button>`).join(""))}</div>
@@ -1666,12 +1656,11 @@ function renderAccount(){
     return;
   }
   const p = me || {};
-  const link = grLinked();
   el.innerHTML = `<h2 class="h">@${esc(p.username)}</h2>
     <form id="pf" style="display:grid;gap:12px">
       <label class="field" for="p-name">Display name<input id="p-name" maxlength="40" value="${esc(p.display_name)}"></label>
       <label class="field" for="p-bio">Bio<textarea id="p-bio" maxlength="160" rows="2">${esc(p.bio)}</textarea></label>
-      <div class="field">Goodreads<span style="font-weight:400;font-size:15px">${link ? `<a href="https://www.goodreads.com/user/show/${esc(link.id)}" target="_blank" rel="noopener">${esc(link.name || "goodreads.com/user/show/" + link.id)}</a> · <a href="#/import">Change on the Goodreads tab</a>` : `Not linked · <a href="#/import">Link on the Goodreads tab</a>`}</span></div>
+      <div class="field">Goodreads<span style="font-weight:400;font-size:15px"><a href="#/import">Import your library on the Goodreads tab</a></span></div>
       <div class="box">
         <b class="sub" style="font-size:16px">Find friends from contacts</b>
         <label class="check" for="p-disc"><input type="checkbox" id="p-disc" ${p.discoverable ? "checked" : ""}> Let friends who have my email or phone number find me</label>
@@ -1742,8 +1731,8 @@ function showWelcome(){
   showPanel("welcome");
   $("#whose-k").textContent = "Welcome to"; $("#whose-h").textContent = "TheBookMap";
   $("#welcome").innerHTML = `<h2 class="h">See the world one book at a time</h2>
-    <p class="lead">Every book you've read, pinned where its story takes place. Link your Goodreads and your whole Read shelf lands on the map, or add books one by one.</p>
-    <div class="cta"><a class="btn gold" href="#/account/up">Create your map</a><a class="btn ghost" href="#/import">Link Goodreads</a></div>
+    <p class="lead">Every book you've read, pinned where its story takes place. Import your Goodreads library and your whole Read shelf lands on the map, or add books one by one.</p>
+    <div class="cta"><a class="btn gold" href="#/account/up">Create your map</a><a class="btn ghost" href="#/import">Import from Goodreads</a></div>
     <p class="hint">Already have an account? <a href="#/account/in">Sign in</a>. MovieMap accounts work here too.</p>
     <h3 class="sub" style="margin-top:22px">Or look around first</h3>
     <div class="list">${starterCard()}</div>`;

@@ -8,8 +8,7 @@ Live at **https://dominicvhoule.github.io/thebookmap/**
 
 - **Map**: every book is a pin at the place its story is set. Dashed pins are approximate (country-level or invented places). It's MovieMap's street map (MapLibre with free OpenFreeMap tiles) in BookMap's colours: place names, cities and streets appear as you zoom, nearby pins merge into a count, and countries you've read in turn gold. Opening a book suggests more set in the same city or country, or by the same author.
 - **Log a book**: search a title or author, pick the right one, and BookMap finds the setting and cover. Move the pin if it's wrong.
-- **Goodreads**: paste your Goodreads profile link or username and every book on your Read shelf comes in, with ratings and dates read. Linking loads up to 6,000 books and only works for public profiles; anyone with a private profile or a bigger shelf uses the export. New books are picked up automatically: once a day on the server (`book-sync`), and whenever the site is opened (at most every 6 hours, with a full re-read weekly). Rating changes follow Goodreads, and books you take off your shelf come off the map.
-- **Private Goodreads profile**: import the library export (`goodreads_library_export.csv`) on the Goodreads tab instead. It brings in ratings, dates read and read counts.
+- **Goodreads**: import the library export (`goodreads_library_export.csv`) on the Goodreads tab. It brings in every book with ratings, dates read and read counts, plus the Want to read and Currently reading shelves, with no limit on size and whether the profile is public or private. Importing a newer export later adds only the new books.
 - **Map, List, Stats**: switch the map to List (countries A to Z, with search) or Stats (share of books by country, continent and decade, best-rated countries, and how many are by a writer from the country they're set in). Opening a country splits its books into ones by writers from there and ones by writers from elsewhere.
 - **People**: one account for BookMap and MovieMap. Search members, follow them, view their maps, find friends from your phone's contacts (Android Chrome), or share an invite link.
 - **Poster**: a print-ready poster of any map.
@@ -19,7 +18,7 @@ Live at **https://dominicvhoule.github.io/thebookmap/**
 | What | Source |
 |---|---|
 | Titles, authors, covers, editions | [Open Library](https://openlibrary.org/) (no key needed). Every cover is Open Library's: each book saves its Open Library cover ID once, and the image link is built from it |
-| Your books, ratings, dates read | Your public Goodreads Read shelf (`goodreads-feed` function), or the Goodreads export |
+| Your books, ratings, dates read | Your Goodreads library export (CSV) |
 | Where a book takes place | [Wikidata](https://www.wikidata.org/) "narrative location" (P840), linked to Open Library works (P648) |
 | When Wikidata has none | The library catalogue's subject places on Open Library ("Saint Petersburg (Russia)"), located through Wikipedia |
 | Then | The places linked in the book's Wikipedia article (its Setting or Plot section) |
@@ -61,6 +60,6 @@ supabase/functions/book-setting/index.ts    asks Claude where a book is set (opt
 
 ## Limits
 
-- **Goodreads**: there's no sign-in (Goodreads closed its API to new apps). Linking reads the public Read shelf feed, so it only works for public profiles and can break if Goodreads changes the feed. Reading the feed this way may not be allowed under Goodreads' terms. Private profiles can use the export.
+- **Goodreads**: there's no sign-in (Goodreads closed its API to new apps), so books come in only through the library export. Profile linking (`goodreads-feed`, nightly `book-sync`) was removed on 2026-10-26: the site no longer reads Goodreads pages, and the nightly jobs are unscheduled. The two functions are still deployed but unused.
 - **Settings**: Wikidata records settings for well-known books; the catalogue and Wikipedia fill many gaps, but newer and smaller books often end up on the author's country or need a pin by hand. Books set in invented worlds (Middle-earth) or with no setting (self-help, poetry) usually land on the author's country; move or remove them. Move pin always wins.
 - **Contacts on iPhone**: Safari doesn't let websites read contacts. iPhone users can share an invite link or search by username instead.
