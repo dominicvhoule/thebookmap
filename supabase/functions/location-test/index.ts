@@ -94,6 +94,21 @@ Deno.serve(async (req) => {
       return json({ loaded: rows.length });
     }
 
+    if (action === "reparse") {
+      // Re-read saved replies that didn't parse (after a parser fix); no new Claude calls.
+      const r = await db(`loc_test_results?error=eq.unparsed&select=book_id,model,variant,raw`);
+      const rows = r.ok ? await r.json() : [];
+      let fixed = 0;
+      for (const row of rows) {
+        const answer = parseAnswer(row.raw ?? "");
+        if (!answer) continue;
+        await db(`loc_test_results?book_id=eq.${row.book_id}&model=eq.${row.model}&variant=eq.${encodeURIComponent(row.variant)}`,
+          { method: "PATCH", body: JSON.stringify({ answer, error: null }) });
+        fixed++;
+      }
+      return json({ checked: rows.length, fixed });
+    }
+
     if (action === "try") {
       const model = String(b.model);
       if (!MODELS.has(model)) return json({ error: "bad_model" }, 400);

@@ -39,11 +39,25 @@ Reply with only this JSON object, no other text:
  "why": "one sentence, under 30 words"}`;
 }
 
+// Finds every complete top-level {...} in the reply and keeps the LAST valid answer: a model sometimes writes
+// the JSON, then a correction and the JSON again.
 export function parseAnswer(text: string): Record<string, unknown> | null {
-  const m = text.match(/\{[\s\S]*\}/);
-  if (!m) return null;
-  try {
-    const a = JSON.parse(m[0]);
-    return a && typeof a === "object" && ["real", "invented", "none"].includes(a.type) ? a : null;
-  } catch { return null; }
+  let found: Record<string, unknown> | null = null;
+  for (let i = text.indexOf("{"); i !== -1; i = text.indexOf("{", i + 1)) {
+    let depth = 0, inStr = false, esc = false, end = -1;
+    for (let j = i; j < text.length; j++) {
+      const c = text[j];
+      if (inStr) { if (esc) esc = false; else if (c === "\\") esc = true; else if (c === '"') inStr = false; continue; }
+      if (c === '"') inStr = true;
+      else if (c === "{") depth++;
+      else if (c === "}" && --depth === 0) { end = j; break; }
+    }
+    if (end === -1) break;
+    try {
+      const a = JSON.parse(text.slice(i, end + 1));
+      if (a && typeof a === "object" && ["real", "invented", "none"].includes(a.type)) found = a;
+    } catch { /* not JSON; keep looking */ }
+    i = end;
+  }
+  return found;
 }

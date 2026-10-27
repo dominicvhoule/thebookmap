@@ -1,0 +1,374 @@
+<title>Pin Review Desk</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Literata:opsz,wght@7..72,500;7..72,650&family=Source+Sans+3:wght@400;600;700&family=JetBrains+Mono:wght@500&display=swap">
+<style>
+/* Layout: a library returns desk. Queue of books on the left, the open book on the right, scores on the masthead. */
+:root{
+  --paper:#f3f5f1; --card:#ffffff; --ink:#1d2621; --muted:#5d6b63; --line:#d6ddd7;
+  --spine:#1f5a42; --spine-ink:#f2f7f3; --accent:#2f7a58; --soft:#e4eee7;
+  --good:#2f7a4f; --good-bg:#e2f1e7; --bad:#a3422f; --bad-bg:#f6e4df; --warn:#8a6512; --warn-bg:#f5ecd3;
+  --t-real:#2d6a8a; --t-inv:#7a4f9a; --t-none:#8a6a2d;
+  --f-display:"Literata", Georgia, serif; --f-body:"Source Sans 3", system-ui, sans-serif; --f-mono:"JetBrains Mono", ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --paper:#141a17; --card:#1b2420; --ink:#e6ece8; --muted:#9aaba1; --line:#2c3833;
+  --spine:#173f2f; --spine-ink:#e8f2ec; --accent:#6cc39a; --soft:#22322b;
+  --good:#7fd1a0; --good-bg:#1f3a2b; --bad:#f0a08c; --bad-bg:#40261f; --warn:#e7c46c; --warn-bg:#3a3220;
+  --t-real:#8cc5e3; --t-inv:#c9a6e8; --t-none:#e2c27e; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --paper:#141a17; --card:#1b2420; --ink:#e6ece8; --muted:#9aaba1; --line:#2c3833;
+  --spine:#173f2f; --spine-ink:#e8f2ec; --accent:#6cc39a; --soft:#22322b;
+  --good:#7fd1a0; --good-bg:#1f3a2b; --bad:#f0a08c; --bad-bg:#40261f; --warn:#e7c46c; --warn-bg:#3a3220;
+  --t-real:#8cc5e3; --t-inv:#c9a6e8; --t-none:#e2c27e; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--paper);color:var(--ink);font:15px/1.5 var(--f-body)}
+button,input,select,textarea{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.mast{background:var(--spine);color:var(--spine-ink);padding-block:14px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.mast-in{max-width:1280px;margin:0 auto;display:flex;flex-wrap:wrap;gap:12px 28px;align-items:end;justify-content:space-between}
+.mast h1{font:650 26px/1.1 var(--f-display);margin:0;text-wrap:balance}
+.mast p{margin:2px 0 0;opacity:.85;font-size:14px}
+.scores{display:flex;gap:18px;flex-wrap:wrap}
+.score{min-width:92px}
+.score b{display:block;font:500 22px/1.1 var(--f-mono);font-variant-numeric:tabular-nums}
+.score span{font-size:12px;letter-spacing:.06em;text-transform:uppercase;opacity:.8}
+.wrap{max-width:1280px;margin:0 auto;padding-block:16px 40px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.bar{display:flex;flex-wrap:wrap;gap:8px 10px;align-items:center;margin-bottom:12px}
+.bar select,.bar input{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:6px 8px}
+.bar input{flex:1 1 180px;min-width:0}
+.prog{font:500 13px var(--f-mono);color:var(--muted);font-variant-numeric:tabular-nums}
+.grid{display:grid;grid-template-columns:minmax(0,320px) minmax(0,1fr);gap:16px;align-items:start}
+@media (max-width:860px){.grid{grid-template-columns:minmax(0,1fr)}.list{max-height:260px}}
+.list{background:var(--card);border:1px solid var(--line);border-radius:8px;max-height:calc(100vh - 210px);overflow:auto}
+.list button{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:8px;align-items:center;width:100%;text-align:left;background:none;border:0;border-bottom:1px solid var(--line);padding:8px 10px;cursor:pointer}
+.list button:hover{background:var(--soft)}
+.list button[aria-current="true"]{background:var(--soft);box-shadow:inset 3px 0 0 var(--accent)}
+.list .tt{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.list .tt small{display:block;color:var(--muted);font-size:12px}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--line)}
+.dot.differ{background:var(--warn)} .dot.agree{background:var(--good)}
+.st{font:500 11px var(--f-mono);color:var(--muted)}
+.st.done{color:var(--good)} .st.skip{color:var(--bad)}
+.book{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:18px}
+.book h2{font:650 24px/1.2 var(--f-display);margin:0;text-wrap:balance}
+.meta{color:var(--muted);margin:4px 0 0}
+.tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.tag{font-size:12px;letter-spacing:.04em;padding:2px 8px;border-radius:999px;background:var(--soft);color:var(--muted)}
+.tag.warn{background:var(--warn-bg);color:var(--warn)}
+details.desc{margin-top:10px;color:var(--muted)}
+details.desc summary{cursor:pointer;font-size:13px}
+details.desc p{margin:6px 0 0;max-width:70ch}
+.models{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;margin-top:16px}
+.ans{border:1px solid var(--line);border-radius:8px;padding:12px;display:flex;flex-direction:column;gap:6px;min-width:0}
+.ans.right{border-color:var(--good);background:var(--good-bg)}
+.ans.wrong{border-color:var(--bad);background:var(--bad-bg)}
+.ans header{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.ans h3{margin:0;font:700 13px var(--f-body);letter-spacing:.08em;text-transform:uppercase}
+.type{font-size:12px;font-weight:700;letter-spacing:.04em}
+.type.real{color:var(--t-real)} .type.invented{color:var(--t-inv)} .type.none{color:var(--t-none)}
+.place{font:650 18px/1.25 var(--f-display);overflow-wrap:anywhere}
+.sub{color:var(--muted);font-size:13px;overflow-wrap:anywhere}
+.why{font-size:13px;margin:0}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;padding:1px 7px;border-radius:4px;background:var(--soft);color:var(--muted)}
+.chip.well{background:var(--good-bg);color:var(--good)} .chip.description{background:var(--warn-bg);color:var(--warn)} .chip.guessing{background:var(--bad-bg);color:var(--bad)}
+ol.jr{margin:2px 0 0;padding-left:20px;font-size:13px}
+ol.jr li{margin:1px 0}
+.judge{display:flex;gap:6px;margin-top:auto;padding-top:6px}
+.judge button{flex:1;border:1px solid var(--line);background:var(--card);border-radius:6px;padding:6px 4px;cursor:pointer;font-weight:600}
+.judge button[aria-pressed="true"].yes{background:var(--good);color:var(--card);border-color:var(--good)}
+.judge button[aria-pressed="true"].no{background:var(--bad);color:var(--card);border-color:var(--bad)}
+.err{color:var(--bad);font-size:13px}
+.verdict{margin-top:16px;border-top:1px solid var(--line);padding-top:14px;display:grid;gap:10px}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.row label{font-size:13px;color:var(--muted)}
+.row input[type=text],.row select,textarea{background:var(--paper);border:1px solid var(--line);border-radius:6px;padding:6px 8px;min-width:0}
+.row input[type=text]{flex:1 1 160px}
+textarea{width:100%;min-height:52px;resize:vertical}
+.btn{border:1px solid var(--line);background:var(--card);border-radius:6px;padding:7px 12px;cursor:pointer;font-weight:600}
+.btn.primary{background:var(--spine);color:var(--spine-ink);border-color:var(--spine)}
+.btn.ghost{background:none}
+.hint{font-size:12px;color:var(--muted)}
+kbd{font:500 11px var(--f-mono);border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:0 4px;background:var(--paper)}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(16px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--paper);padding:8px 14px;border-radius:8px;font-size:14px}
+.empty{padding:32px;text-align:center;color:var(--muted)}
+@media (prefers-reduced-motion:no-preference){.ans{transition:background .15s,border-color .15s}}
+</style>
+
+<header class="mast">
+  <div class="mast-in">
+    <div>
+      <h1>Pin Review Desk</h1>
+      <p>TheBookMap location test · 999 books · mark each model's answer right or wrong</p>
+    </div>
+    <div class="scores" id="scores" aria-live="polite"></div>
+  </div>
+</header>
+
+<main class="wrap">
+  <div class="bar">
+    <select id="f-status" aria-label="Status">
+      <option value="todo">To review</option><option value="done">Reviewed</option><option value="skip">Skipped</option><option value="all">All books</option>
+    </select>
+    <select id="f-pool" aria-label="Picked as">
+      <option value="">All types</option><option value="real">Picked as real place</option><option value="invented">Picked as invented world</option><option value="nosetting">Picked as no setting</option>
+    </select>
+    <select id="f-band" aria-label="Fame">
+      <option value="">Well-known and lesser-known</option><option value="popular">Well-known</option><option value="lesser">Lesser-known</option>
+    </select>
+    <select id="f-order" aria-label="Order">
+      <option value="differ">Models disagree first</option><option value="id">Book number</option>
+    </select>
+    <input id="f-q" type="search" placeholder="Find a title or author" aria-label="Find a title or author">
+    <span class="prog" id="prog"></span>
+  </div>
+  <div class="grid">
+    <nav class="list" id="list" aria-label="Books"></nav>
+    <section id="book" class="book" aria-live="polite"><div class="empty">Loading the test books…</div></section>
+  </div>
+</main>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+const MODELS = [["haiku","Haiku"],["sonnet","Sonnet"],["opus","Opus"]];
+const TYPE_LABEL = {real:"Real place", invented:"Invented world", none:"No setting"};
+const POOL_LABEL = {real:"real place", invented:"invented world", nosetting:"no setting"};
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const norm = s => String(s ?? "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[^a-z0-9]/g,"");
+
+let BOOKS = [], byId = new Map(), verdicts = {}, mcp = null, canWrite = true, current = null, queue = [];
+
+// Everything lives in TheBookMap's Supabase project; the page reads and writes it through the viewer's
+// Supabase connector (claude.ai asks once to allow it).
+const SERVER = "Supabase", PROJECT = "hwzxyfpqxqndgjbiaiec";
+async function sql(query){
+  const res = await mcp.callTool(SERVER, "execute_sql", {project_id: PROJECT, query}, {cache: false});
+  let p = res.payload;
+  let text = typeof p === "string" ? p : (p && typeof p.result === "string") ? p.result : JSON.stringify(p ?? "");
+  const m = text.match(/<untrusted-data-[^>]*>\s*(\[[\s\S]*?\])\s*<\/untrusted-data-/);
+  try{ return JSON.parse(m ? m[1] : text); }
+  catch(e){ if(/error/i.test(text)) throw {code: "tool_error", message: text.slice(0, 200)}; return []; }
+}
+const ERR_COPY = {
+  needs_reauth: "Your Supabase connection needs reconnecting: claude.ai Settings → Connectors.",
+  server_not_connected: "Add the Supabase connector in claude.ai Settings → Connectors, then reload.",
+  selection_required: "Choose which Supabase connection this page should use, then reload.",
+  not_in_manifest: "Supabase isn't allowed for this page yet. Reload and choose Allow when claude.ai asks.",
+  approval_required: "This page needs your approval to use Supabase. Reload and choose Allow.",
+  blocked_by_policy: "Your organization's settings block this Supabase tool.",
+  server_unavailable: "Supabase didn't answer just now. Try again in a moment.",
+};
+const errText = e => (e && ERR_COPY[e.code]) || ("Something went wrong talking to Supabase" + (e && e.message ? ": " + e.message : "."));
+
+function placeKey(a){
+  if(!a) return "x";
+  if(a.type === "invented") return "inv|" + norm((a.world||"").split(/[(,]/)[0]);
+  const m = a.main || {};
+  return a.type + "|" + norm(m.country) + "|" + norm((m.place||"").split(",")[0]);
+}
+function agreement(b){
+  const keys = MODELS.map(([k]) => placeKey(b.ans[k]));
+  const types = MODELS.map(([k]) => b.ans[k] && b.ans[k].type);
+  if(keys.every(k => k === keys[0])) return "agree";
+  if(types.every(t => t && t === types[0]) && types[0] !== "invented"){
+    const cs = MODELS.map(([k]) => norm(b.ans[k]?.main?.country));
+    if(cs.every(c => c === cs[0])) return "close";
+  }
+  return "differ";
+}
+function status(id){ const v = verdicts[id]; return !v ? "todo" : v.skip ? "skip" : "done"; }
+
+function renderScores(){
+  const el = $("#scores"); let html = "";
+  for(const [k, name] of MODELS){
+    let r = 0, n = 0;
+    for(const id in verdicts){ const v = verdicts[id]; if(v.skip || !v.right || v.right[k] == null) continue; n++; if(v.right[k]) r++; }
+    html += `<div class="score"><b>${n ? Math.round(100*r/n) + "%" : "–"}</b><span>${name} · ${r}/${n}</span></div>`;
+  }
+  const done = Object.values(verdicts).filter(v => !v.skip).length;
+  html += `<div class="score"><b>${done}</b><span>reviewed of ${BOOKS.length}</span></div>`;
+  el.innerHTML = html;
+}
+
+function filtered(){
+  const st = $("#f-status").value, pool = $("#f-pool").value, band = $("#f-band").value, q = norm($("#f-q").value);
+  let xs = BOOKS.filter(b => (st === "all" || status(b.id) === st) && (!pool || b.pool === pool) && (!band || b.band === band)
+    && (!q || norm(b.t + b.a).includes(q)));
+  if($("#f-order").value === "differ"){
+    const rank = {differ:0, close:1, agree:2};
+    xs = xs.slice().sort((a, b) => rank[a.agree] - rank[b.agree] || a.id - b.id);
+  }
+  return xs;
+}
+function renderList(){
+  queue = filtered();
+  $("#prog").textContent = `${queue.length} shown`;
+  const list = $("#list");
+  if(!queue.length){ list.innerHTML = `<div class="empty">Nothing here with these filters.</div>`; return; }
+  list.innerHTML = queue.map(b => {
+    const s = status(b.id);
+    return `<button type="button" data-id="${b.id}" aria-current="${current === b.id}">
+      <span class="dot ${b.agree === "agree" ? "agree" : b.agree === "differ" ? "differ" : ""}" title="${b.agree === "agree" ? "Models agree" : b.agree === "differ" ? "Models disagree" : "Same country, different place"}"></span>
+      <span class="tt">${esc(b.t)}<small>${esc(b.a)}</small></span>
+      <span class="st ${s}">${s === "done" ? "✓" : s === "skip" ? "skipped" : "#" + b.id}</span></button>`;
+  }).join("");
+}
+
+function answerCard(k, name, a, v, err){
+  const judged = v && v.right ? v.right[k] : null;
+  let body;
+  if(!a){ body = `<p class="err">No usable answer${err ? " (" + esc(err) + ")" : ""}.</p>`; }
+  else{
+    const m = a.main || {};
+    const where = a.type === "invented" ? esc(a.world || "Unnamed world") : esc(m.place || "—");
+    const sub = a.type === "invented" ? "" : [m.region, m.country].filter(Boolean).map(esc).join(", ");
+    const jr = (a.journey || []).length > 1 ? `<details><summary class="sub">Journey · ${a.journey.length} stops</summary><ol class="jr">${a.journey.map(j => `<li>${esc(j.place)}${j.country ? ", " + esc(j.country) : ""}${j.note ? ` <span class="sub">· ${esc(j.note)}</span>` : ""}</li>`).join("")}</ol></details>` : "";
+    const cands = a.ambiguous && (a.candidates || []).length ? `<div class="sub">Equally defensible: ${a.candidates.map(c => esc(c.place)).join(" · ")}</div>` : "";
+    body = `<span class="type ${a.type}">${TYPE_LABEL[a.type] || esc(a.type)}</span>
+      <div class="place">${where}</div>${sub ? `<div class="sub">${sub}</div>` : ""}
+      ${a.invented_name ? `<div class="sub">In the book: ${esc(a.invented_name)}</div>` : ""}
+      ${a.type === "none" && a.author_basis ? `<div class="sub">Author's place, by ${esc({writing:"where they wrote it",career:"working life",citizenship:"citizenship",birthplace:"birthplace"}[a.author_basis] || a.author_basis)}</div>` : ""}
+      <div class="chips"><span class="chip ${esc(a.known)}">${a.known === "well" ? "knows it" : a.known === "description" ? "from description" : "guessing"}</span>${m.precision ? `<span class="chip">${esc(m.precision)}</span>` : ""}${a.ambiguous ? `<span class="chip">ambiguous</span>` : ""}</div>
+      ${cands}${jr}<p class="why">${esc(a.why || "")}</p>`;
+  }
+  return `<article class="ans ${judged === true ? "right" : judged === false ? "wrong" : ""}" data-k="${k}">
+    <header><h3>${name}</h3><span class="sub">${MODELS.findIndex(m => m[0] === k) + 1}</span></header>${body}
+    <div class="judge" role="group" aria-label="${name}'s answer">
+      <button type="button" class="yes" data-k="${k}" data-v="1" aria-pressed="${judged === true}">Right</button>
+      <button type="button" class="no" data-k="${k}" data-v="0" aria-pressed="${judged === false}">Wrong</button>
+    </div></article>`;
+}
+
+let draft = null;
+function openBook(id){
+  current = id; const b = byId.get(id); if(!b) return;
+  const v = verdicts[id];
+  draft = v ? JSON.parse(JSON.stringify(v)) : {right:{haiku:null, sonnet:null, opus:null}, type:"", place:"", country:"", ambiguous:false, skip:false, note:""};
+  if(!draft.type){ const ts = MODELS.map(([k]) => b.ans[k]?.type).filter(Boolean); draft.type = ts.sort((x,y) => ts.filter(t=>t===y).length - ts.filter(t=>t===x).length)[0] || ""; }
+  drawBook();
+  document.querySelectorAll("#list button").forEach(x => x.setAttribute("aria-current", String(Number(x.dataset.id) === id)));
+  const cur = document.querySelector(`#list button[data-id="${id}"]`); if(cur) cur.scrollIntoView({block:"nearest"});
+}
+function drawBook(){
+  const b = byId.get(current), d = draft;
+  $("#book").innerHTML = `
+    <h2>${esc(b.t)}</h2>
+    <p class="meta">${esc(b.a)}${b.y ? " · " + esc(b.y) : ""} · book #${b.id}</p>
+    <div class="tags"><span class="tag">picked as ${POOL_LABEL[b.pool]}</span><span class="tag">${b.band === "popular" ? "well-known" : "lesser-known"}</span>
+      ${b.agree === "differ" ? `<span class="tag warn">models disagree</span>` : b.agree === "close" ? `<span class="tag warn">same country, different place</span>` : `<span class="tag">models agree</span>`}</div>
+    ${b.desc ? `<details class="desc"><summary>Catalogue description the models saw</summary><p>${esc(b.desc)}</p></details>` : `<p class="hint">No catalogue description: models answered from what they know.</p>`}
+    <div class="models">${MODELS.map(([k, name]) => answerCard(k, name, b.ans[k], d, b.err?.[k])).join("")}</div>
+    <div class="verdict">
+      <div class="row">
+        <button type="button" class="btn" id="all-right">All right <kbd>A</kbd></button>
+        <button type="button" class="btn" id="none-right">None right <kbd>N</kbd></button>
+        <label><input type="checkbox" id="v-amb" ${d.ambiguous ? "checked" : ""}> Several places are fine</label>
+      </div>
+      <div class="row">
+        <label for="v-type">Correct type</label>
+        <select id="v-type"><option value="">—</option>${Object.entries(TYPE_LABEL).map(([k,l]) => `<option value="${k}" ${d.type === k ? "selected" : ""}>${l}</option>`).join("")}</select>
+        <input type="text" id="v-place" placeholder="Correct place or world (if none are right)" value="${esc(d.place)}">
+        <input type="text" id="v-country" placeholder="Country" value="${esc(d.country)}">
+      </div>
+      <textarea id="v-note" placeholder="Note (optional)">${esc(d.note)}</textarea>
+      <div class="row">
+        <button type="button" class="btn primary" id="save">Save and next <kbd>Enter</kbd></button>
+        <button type="button" class="btn ghost" id="skip">${d.skip ? "Un-skip" : "Skip this book"} <kbd>S</kbd></button>
+        <span class="hint">Mark a model right if you'd be happy with its pin. Keys: <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> toggle a model, <kbd>J</kbd>/<kbd>K</kbd> next/previous.</span>
+      </div>
+      ${!mcp ? `<p class="err">Saving isn't available in this view. Open the page on claude.ai while signed in.</p>` : ""}
+    </div>`;
+}
+
+function readInputs(){
+  draft.type = $("#v-type").value; draft.place = $("#v-place").value.trim(); draft.country = $("#v-country").value.trim();
+  draft.ambiguous = $("#v-amb").checked; draft.note = $("#v-note").value.trim();
+}
+function setJudge(k, val){ readInputs(); draft.right[k] = draft.right[k] === val ? null : val; drawBook(); }
+function toast(msg){ const t = $("#toast"); t.textContent = msg; t.hidden = false; clearTimeout(toast.h); toast.h = setTimeout(() => t.hidden = true, Math.max(1800, msg.length * 60)); }
+
+async function save(skip){
+  readInputs();
+  if(skip !== undefined) draft.skip = skip;
+  const b = byId.get(current);
+  if(!draft.skip){
+    const missing = MODELS.filter(([k]) => b.ans[k] && draft.right[k] == null).map(m => m[1]);
+    if(missing.length){ toast("Mark " + missing.join(" and ") + " right or wrong first"); return; }
+  }
+  const doc = {...draft, right: {...draft.right}, at: new Date().toISOString()};
+  const id = current, before = verdicts[id];
+  verdicts[id] = doc; renderScores();
+  if(!mcp){ toast("Can't save in this view"); verdicts[id] = before; if(!before) delete verdicts[id]; renderScores(); return; }
+  try{
+    const body = JSON.stringify(doc).replace(/\$/g, "\\u0024");
+    await sql(`insert into loc_test_verdicts (book_id, verdict, updated_at) values (${Number(id)}, $v$${body}$v$::jsonb, now()) on conflict (book_id) do update set verdict = excluded.verdict, updated_at = now();`);
+  }catch(e){ toast("Not saved. " + errText(e)); if(before) verdicts[id] = before; else delete verdicts[id]; renderScores(); drawBook(); return; }
+  toast(draft.skip ? "Skipped" : "Saved");
+  advance(id);
+}
+// After saving, the reviewed book may leave the queue ("To review"): open whichever book now sits where it was.
+function advance(id){
+  const before = queue.findIndex(b => b.id === id);
+  renderList();
+  const still = queue.findIndex(b => b.id === id);
+  const target = still >= 0 ? queue[still + 1] : queue[Math.min(Math.max(before, 0), queue.length - 1)];
+  if(target) openBook(target.id); else if(queue[0]) openBook(queue[0].id);
+}
+function next(dir){
+  const i = queue.findIndex(b => b.id === current);
+  const n = queue[i + dir]; if(n) openBook(n.id);
+}
+
+document.addEventListener("click", e => {
+  const t = e.target.closest("button"); if(!t) return;
+  if(t.closest("#list")){ openBook(Number(t.dataset.id)); return; }
+  if(t.dataset.k && t.dataset.v != null){ setJudge(t.dataset.k, t.dataset.v === "1"); return; }
+  if(t.id === "all-right"){ readInputs(); const b = byId.get(current); MODELS.forEach(([k]) => { if(b.ans[k]) draft.right[k] = true; }); drawBook(); return; }
+  if(t.id === "none-right"){ readInputs(); const b = byId.get(current); MODELS.forEach(([k]) => { if(b.ans[k]) draft.right[k] = false; }); drawBook(); $("#v-place").focus(); return; }
+  if(t.id === "save"){ save(); return; }
+  if(t.id === "skip"){ save(!draft.skip); return; }
+});
+document.addEventListener("keydown", e => {
+  const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName || "");
+  if(e.key === "Enter" && !e.shiftKey && (!typing || document.activeElement.type === "text" || document.activeElement.tagName === "SELECT")){ if(current){ e.preventDefault(); save(); } return; }
+  if(typing || e.metaKey || e.ctrlKey || e.altKey || !current) return;
+  const b = byId.get(current);
+  if(e.key >= "1" && e.key <= "3"){ const k = MODELS[Number(e.key) - 1][0]; if(b.ans[k]) setJudge(k, draft.right[k] === true ? false : true); }
+  else if(e.key === "a" || e.key === "A"){ $("#all-right").click(); }
+  else if(e.key === "n" || e.key === "N"){ e.preventDefault(); $("#none-right").click(); }
+  else if(e.key === "s" || e.key === "S"){ $("#skip").click(); }
+  else if(e.key === "j" || e.key === "ArrowDown"){ e.preventDefault(); next(1); }
+  else if(e.key === "k" || e.key === "ArrowUp"){ e.preventDefault(); next(-1); }
+});
+["#f-status","#f-pool","#f-band","#f-order"].forEach(s => $(s).addEventListener("change", () => { renderList(); if(queue.length && !queue.some(b => b.id === current)) openBook(queue[0].id); }));
+$("#f-q").addEventListener("input", () => renderList());
+
+const PAGE_SQL = (from, to) => `select json_agg(x order by x.id) as j from (
+  select b.id, b.pool, b.band, b.title as t, b.author as a, b.year as y, b.description as "desc",
+    coalesce((select json_object_agg(split_part(r.model, '-', 2), r.answer) from loc_test_results r where r.book_id = b.id and r.variant = 'v2.0'), '{}') as ans,
+    coalesce((select json_object_agg(split_part(r.model, '-', 2), r.error) from loc_test_results r where r.book_id = b.id and r.variant = 'v2.0' and r.error is not null), '{}') as err
+  from loc_test_books b where b.id between ${from} and ${to}) x;`;
+
+async function start(){
+  const book = $("#book");
+  try{ mcp = await window.claude?.use?.("mcp"); }catch(e){ mcp = null; }
+  if(!mcp){ book.innerHTML = `<div class="empty">This page reads the test from Supabase through your connector, which only works on claude.ai while you're signed in.</div>`; return; }
+  try{
+    const pages = [[1, 250], [251, 500], [501, 750], [751, 1000]];
+    book.innerHTML = `<div class="empty">Loading the test books and the models' answers…</div>`;
+    const parts = [];
+    for(const [a, b] of pages){ const rows = await sql(PAGE_SQL(a, b)); parts.push(...((rows[0] && rows[0].j) || [])); book.innerHTML = `<div class="empty">Loaded ${parts.length} of 999 books…</div>`; }
+    BOOKS = parts; BOOKS.forEach(b => { b.ans = b.ans || {}; b.err = b.err || {}; b.agree = agreement(b); byId.set(b.id, b); });
+    const v = await sql(`select coalesce(json_object_agg(book_id, verdict), '{}') as v from loc_test_verdicts;`);
+    verdicts = (v[0] && v[0].v) || {};
+  }catch(e){ book.innerHTML = `<div class="empty">${esc(errText(e))}</div>`; return; }
+  const answered = BOOKS.filter(b => Object.keys(b.ans).length).length;
+  if(!answered){ book.innerHTML = `<div class="empty">The models are still working through the books. Check back in a little while.</div>`; renderScores(); return; }
+  const missing = MODELS.filter(([k]) => !BOOKS.some(b => b.ans[k] || b.err[k])).map(m => m[1]);
+  if(missing.length) toast(missing.join(" and ") + (missing.length > 1 ? " are" : " is") + " still working. Reload later to see their answers.");
+  renderScores(); renderList(); if(queue.length) openBook(queue[0].id); else book.innerHTML = `<div class="empty">Every book here is reviewed. Change the filter to see them.</div>`;
+}
+start();
+</script>

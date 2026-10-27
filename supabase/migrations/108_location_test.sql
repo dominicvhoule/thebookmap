@@ -49,3 +49,12 @@ alter table public.loc_test_books enable row level security;
 alter table public.loc_test_batches enable row level security;
 alter table public.loc_test_results enable row level security;
 alter table public.loc_test_tickets enable row level security;
+
+-- The owner's verdicts from the review page (one per book): which models were right, the correct type and
+-- place when none were, whether several places are fine, skipped books, notes.
+create table if not exists public.loc_test_verdicts (
+  book_id     int primary key references public.loc_test_books(id),
+  verdict     jsonb not null,
+  updated_at  timestamptz not null default now()
+);
+alter table public.loc_test_verdicts enable row level security;
