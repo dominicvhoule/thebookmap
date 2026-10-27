@@ -10,6 +10,9 @@
 // POST {ticket, action: "submit",  model, ids?: [...], variant?}      → {batch_id}   (all books if no ids)
 // POST {ticket, action: "collect", batch_id}                          → {saved, failed} once the batch has ended
 // POST {ticket, action: "status",  batch_id}                          → the batch's processing status
+// POST {ticket, action: "cancel",  batch_id}                          → cancels a batch (unfinished requests aren't billed)
+// POST {ticket, action: "reparse"}                                    → re-reads saved replies that didn't parse
+// ("try" saves as variant "trial" unless a variant is passed, e.g. "v2.0" to count with the batched results)
 
 import { locationPrompt, parseAnswer, PROMPT_VERSION } from "./prompt.ts";
 
@@ -116,7 +119,7 @@ Deno.serve(async (req) => {
       const rows = await Promise.all(list.map(async (bk) => {
         const r = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: AH, body: JSON.stringify(params(model, bk)) });
         const msg = r.ok ? await r.json() : null;
-        return resultRow(bk.id, model, "trial", msg, r.ok ? null : `http_${r.status}`);
+        return resultRow(bk.id, model, typeof b.variant === "string" ? variant : "trial", msg, r.ok ? null : `http_${r.status}`);
       }));
       await save(rows);
       return json({ results: rows.map((r) => ({ id: r.book_id, answer: r.answer, error: r.error, in: r.in_tokens, out: r.out_tokens, raw: r.answer ? undefined : r.raw })) });
@@ -135,6 +138,16 @@ Deno.serve(async (req) => {
       if (!r.ok) return json({ error: "batch_" + r.status, detail: out }, 502);
       await db("loc_test_batches", { method: "POST", body: JSON.stringify({ batch_id: out.id, model, variant, books: list.length }) });
       return json({ batch_id: out.id, books: list.length, status: out.processing_status });
+    }
+
+    if (action === "cancel") {
+      const id = String(b.batch_id ?? "");
+      if (!/^[A-Za-z0-9_-]{6,100}$/.test(id)) return json({ error: "bad_batch" }, 400);
+      const r = await fetch(`https://api.anthropic.com/v1/messages/batches/${id}/cancel`, { method: "POST", headers: AH });
+      const out = await r.json();
+      if (!r.ok) return json({ error: "batch_" + r.status, detail: out }, 502);
+      await db(`loc_test_batches?batch_id=eq.${id}`, { method: "PATCH", body: JSON.stringify({ status: "canceled" }) });
+      return json({ status: out.processing_status, counts: out.request_counts });
     }
 
     if (action === "status" || action === "collect") {
