@@ -361,9 +361,16 @@ a{color:var(--pin);text-underline-offset:2px}
 
 /* Reading log | Want to read */
 #loghead{display:flex;gap:14px;align-items:baseline;flex-wrap:wrap}
-#loghead button{background:none;border:0;padding:0 0 2px;font:inherit;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent}
-#loghead button[aria-pressed="true"]{color:var(--ink);border-bottom-color:var(--gold)}
-#loghead button span{font-family:var(--f-mono);font-style:normal;font-size:12px;font-weight:500;color:var(--muted);margin-left:2px}
+.listhead.tabbed{flex-direction:column;align-items:stretch;gap:10px;padding-top:14px}
+.listhead.tabbed input{width:100%;max-width:none}
+.tabbed #loghead{display:grid;grid-template-columns:repeat(3,1fr);gap:0;border:1px solid var(--line);font-style:normal}
+#loghead button{display:flex;flex-direction:column;align-items:center;gap:1px;min-width:0;background:var(--card);border:0;border-left:1px solid var(--line);padding:8px 6px 7px;font:inherit;color:var(--muted);cursor:pointer}
+#loghead button:first-child{border-left:0}
+#loghead button b{font-family:var(--f-display);font-style:italic;font-weight:700;font-size:16px;line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+#loghead button span{font-family:var(--f-mono);font-style:normal;font-size:12px;font-weight:500;color:var(--muted)}
+#loghead button:hover{color:var(--ink)}
+#loghead button[aria-pressed="true"]{background:var(--spine);color:var(--spine-ink)}
+#loghead button[aria-pressed="true"] span{color:var(--gold-soft)}
 .lists{display:contents}
 .btn.want.on{border-color:var(--gold);color:var(--ink);background:color-mix(in srgb,var(--gold) 14%,transparent)}
 

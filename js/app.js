@@ -231,12 +231,14 @@ async function syncLists(entries){
   await loadWants();
   return {added:fresh.length, moved:moves.want.length + moves.reading.length, done:done.length};
 }
-// The reading log's heading: on your own map, "Reading log | Currently reading (n) | Want to read (n)".
+// The reading log's heading: on your own map, three tabs side by side: Read | Reading | Want to read, each with a count.
 function paintRailTabs(){
   const h = $("#loghead"); if(!h) return;
-  if(!(viewing.mine && me)){ railTab = "read"; h.textContent = "Reading log"; $("#q").hidden = false; return; }
-  const tab = (k, name, n) => `<button type="button" data-tab="${k}" aria-pressed="${railTab === k}">${name}${n == null ? "" : ` <span>${n}</span>`}</button>`;
-  h.innerHTML = tab("read", "Reading log") + tab("reading", "Currently reading", onList("reading").length) + tab("want", "Want to read", onList("want").length);
+  const head = h.closest(".listhead");
+  if(!(viewing.mine && me)){ railTab = "read"; head.classList.remove("tabbed"); h.removeAttribute("role"); h.textContent = "Reading log"; $("#q").hidden = false; return; }
+  head.classList.add("tabbed"); h.setAttribute("role", "group"); h.setAttribute("aria-label", "Your lists");
+  const tab = (k, name, n) => `<button type="button" data-tab="${k}" aria-pressed="${railTab === k}"><b>${name}</b><span>${n}</span></button>`;
+  h.innerHTML = tab("read", "Read", myBooks.length) + tab("reading", "Reading", onList("reading").length) + tab("want", "Want to read", onList("want").length);
   h.querySelectorAll("button").forEach(b=>b.onclick = ()=>{ railTab = b.dataset.tab; renderList(); });
   $("#q").hidden = railTab !== "read";
 }
