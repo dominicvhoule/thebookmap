@@ -132,6 +132,7 @@ const Store = {
         if(error) throw error;
         added += (data||[]).length;
       }
+      importReportChanged();
       return {added};
     }
     if(signedOut()) throw new Error(NEED_ACCOUNT);
@@ -152,10 +153,12 @@ const Store = {
       MM.lsSet(LOCAL, cur.map(x=>MM.bookKey(x)===k ? Object.assign({}, x, patch) : x));
     }
     Object.assign(f, patch);
+    importReportChanged();
   },
   async remove(f){
     if(cloud() && f.id){ const {error} = await sb.from("book_logs").delete().eq("id", f.id); if(error) throw error; }
     else if(!cloud()){ if(signedOut()) throw new Error(NEED_ACCOUNT); const k = MM.bookKey(f); MM.lsSet(LOCAL, MM.lsGet(LOCAL, []).filter(x=>MM.bookKey(x)!==k)); }
+    importReportChanged();
   }
 };
 let myBooks = [];
@@ -243,7 +246,7 @@ function paintRailTabs(){
   h.querySelectorAll("button").forEach(b=>b.onclick = ()=>{ railTab = b.dataset.tab; renderList(); });
   $("#q").hidden = railTab !== "read";
 }
-async function reloadMine(){ try{ myBooks = await Store.load(); }catch(e){ myBooks = []; toast("Couldn't load your books. Check your connection."); } }
+async function reloadMine(){ try{ myBooks = await Store.load(); }catch(e){ myBooks = []; toast("Couldn't load your books. Check your connection."); } importReportChanged(); }
 const myKeys = () => new Set(myBooks.map(MM.bookKey));
 const onMyMap = m => myKeys().has(MM.bookKey(m)) || (!!m.ol && myBooks.some(b=>b.ol === m.ol)) || (!!m.gr && myBooks.some(b=>b.gr === m.gr));
 
@@ -1512,8 +1515,14 @@ async function importGoodreadsExport(file, status, button){
       const r = await placeEntries(part, (d)=>say(`Finding where your books take place… ${i + d} of ${todo.length}. Keep this page open.${Date.now() - MM.olBusyAt < 30000 ? " Open Library is busy, so this is going slower; nothing will be skipped." : ""}`));
       added += (await Store.add(r.ready)).added;
       missed.push(...r.missed);
+      // Show progress as it happens: the new books on the map, and the box's counts.
+      await reloadMine();
+      const sofar = MM.lsGet(grReportKey(), null) || {missed:[], total:0};
+      const seen = new Map(); [...sofar.missed, ...r.missed].forEach(m=>seen.set(m.gr || MM.bookKey(m), m));
+      MM.lsSet(grReportKey(), {total:Math.max(sofar.total || 0, books.length), full:true, missed:[...seen.values()]});
+      if(viewing.mine){ viewing.films = myBooks; renderAll(); }
+      renderImportReport();
     }
-    await reloadMine();
     const ln = await listNote();
     const prev = MM.lsGet(grReportKey(), null) || {missed:[], total:0};
     const byId = new Map(); [...prev.missed, ...missed].forEach(m=>byId.set(m.gr || MM.bookKey(m), m));
@@ -1530,11 +1539,6 @@ function renderImport(){
   const el = $("#import");
   if(signedOut()) return needAccount(el, "Goodreads", "import your Goodreads library and bring in your books");
   showMine_keepView();
-  // The import report is kept in this browser. If the books it describes are no longer on the map (for
-  // example after a reset), it's out of date, so it's dropped rather than shown.
-  let rep = MM.lsGet(grReportKey(), null);
-  if(rep && booksReady && !myBooks.length){ MM.lsSet(grReportKey(), null); rep = null; }
-  const missing = rep ? rep.missed.filter(m=>!onMyMap(m)) : [];
   el.innerHTML = `<h2 class="h">Goodreads</h2>
     <p class="hint">Bring in every book you've read on Goodreads, with your ratings and dates read. Goodreads exports your whole library as one file, with no limit on how many books, and it works whether your profile is public or private.</p>
     <figure class="howvid">
@@ -1548,17 +1552,34 @@ function renderImport(){
     </ol>
     <p class="hint" id="grcs" aria-live="polite"></p>
     <p class="hint">Read more books since? Export again and import the new file: books already on your map are skipped.</p>
-    ${rep ? `<div class="box">
-      <p class="ok" style="margin:0"><b>${myBooks.length} book${myBooks.length===1?"":"s"}</b> on your map${missing.length ? `, <b>${missing.length}</b> still need${missing.length===1?"s":""} a pin` : ", all on your map"}.</p>
-      ${missing.length ? `<p class="hint">We couldn't work out where ${missing.length===1 ? "this one takes" : "these take"} place. Tap Place it to pin ${missing.length===1 ? "it" : "each one"} yourself.</p>
-      <ul class="results">${missing.slice(0, 200).map((m,i)=>`<li><button data-i="${i}"><span class="th" style="--c:${cloth(m)};${MM.coverURL(m,"S") ? `background-image:url('${esc(MM.coverURL(m,"S"))}')` : ""}"></span><span style="min-width:0"><b>${esc(m.t)}</b><span class="m">${esc(m.a)}</span><span class="m" style="color:var(--rust)"> · Place it →</span></span></button></li>`).join("")}</ul>` : ""}
-    </div>` : ""}
+    <div id="grrep" aria-live="polite"></div>
     ${!cloud() ? `<p class="notice">${me ? "Books save in this browser for now." : '<a href="#/account">Sign in</a> to keep your books on your account.'}</p>` : ""}`;
-  el.querySelectorAll(".results button").forEach(b=>b.onclick = ()=>{ pendingLog = missing[+b.dataset.i]; location.hash = "#/log"; });
+  renderImportReport();
   const csv = $("#grcsv"), cl = el.querySelector('label[for="grcsv"]');
   if(cl) cl.onkeydown = e=>{ if(e.key === "Enter" || e.key === " "){ e.preventDefault(); csv.click(); } };
   if(csv) csv.onchange = ()=>{ if(csv.files.length) importGoodreadsExport(csv.files[0], $("#grcs"), cl); };
 }
+// The import box: books on your map and those still needing a pin. It always shows the state right now:
+// it's redrawn after every batch of an import and whenever a book is added, placed, moved or removed.
+function renderImportReport(){
+  const box = $("#grrep"); if(!box) return;
+  let rep = MM.lsGet(grReportKey(), null);
+  // The list of books still needing a pin is kept in this browser; books placed since are taken off it.
+  if(rep){
+    const still = rep.missed.filter(m=>!onMyMap(m));
+    if(booksReady && !myBooks.length && !importing){ MM.lsSet(grReportKey(), null); rep = null; }   // e.g. after a reset
+    else if(still.length !== rep.missed.length){ rep.missed = still; MM.lsSet(grReportKey(), rep); }
+  }
+  const missing = rep ? rep.missed : [];
+  box.innerHTML = rep ? `<div class="box">
+      <p class="ok" style="margin:0"><b>${myBooks.length} book${myBooks.length===1?"":"s"}</b> on your map${missing.length ? `, <b>${missing.length}</b> still need${missing.length===1?"s":""} a pin` : ", none waiting for a pin"}.</p>
+      ${missing.length ? `<p class="hint">We couldn't work out where ${missing.length===1 ? "this one takes" : "these take"} place. Tap Place it to pin ${missing.length===1 ? "it" : "each one"} yourself.</p>
+      <ul class="results">${missing.slice(0, 200).map((m,i)=>`<li><button data-i="${i}"><span class="th" style="--c:${cloth(m)};${MM.coverURL(m,"S") ? `background-image:url('${esc(MM.coverURL(m,"S"))}')` : ""}"></span><span style="min-width:0"><b>${esc(m.t)}</b><span class="m">${esc(m.a)}</span><span class="m" style="color:var(--rust)"> · Place it →</span></span></button></li>`).join("")}</ul>` : ""}
+    </div>` : "";
+  box.querySelectorAll(".results button").forEach(b=>b.onclick = ()=>{ pendingLog = missing[+b.dataset.i]; location.hash = "#/log"; });
+}
+let reportT = null;
+function importReportChanged(){ clearTimeout(reportT); reportT = setTimeout(renderImportReport, 0); }
 
 /* ---------- people ---------- */
 const starterCard = () => `<a class="ucard" href="#/u/${FEATURED.username}"><span class="avatar" style="background:${MM.avatarColor(FEATURED.username)}">${FEATURED.name[0]}</span><span style="min-width:0"><b>${esc(FEATURED.name)}</b><span class="m">Starter shelf</span></span><em><b>${FEATURED.books.length || FEATURED.count || 0}</b><br>books</em></a>`;
