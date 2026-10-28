@@ -13,7 +13,8 @@ let toastT;
 function toast(msg){ const el = $("#toast"); el.textContent = msg; el.hidden = false; clearTimeout(toastT); toastT = setTimeout(()=>el.hidden = true, 2600); }
 
 const contOf = f => f.cont || MM.continentOf(f.c) || "";
-const placeLine = f => (!f.p ? f.c : !f.c || f.p.includes(f.c) ? f.p : f.p + ", " + f.c) || "";
+const placeLine = f => MM.inOtherWorld(f) ? [f.p, MM.worldName(f.w)].filter((x,i,a)=>x && a.indexOf(x) === i).join(", ")
+  : (!f.p ? f.c : !f.c || f.p.includes(f.c) ? f.p : f.p + ", " + f.c) || "";
 const byLine = f => [f.a, f.y].filter(Boolean).join(" · ");
 // Books without a cover image get a clothbound one, its colour picked from the title.
 const CLOTH = ["#17362F","#7A2833","#25356F","#8E6A12","#4B3A5E","#2F5161","#5C3B23","#3E5A2C"];
@@ -525,6 +526,7 @@ function pinElement(d){
   return el;
 }
 function renderPins(){
+  renderWorlds();
   if(!mapReady) return;
   markers.forEach(m=>m.remove()); markers = [];
   map.getContainer().classList.toggle("far", map.getZoom() < 2.6);
@@ -642,6 +644,7 @@ async function cardParts(b, ms = 5000){
 async function openBook(f, fly){
   const token = ++openToken;
   selected = f; preview = null;
+  if(MM.inOtherWorld(f) !== worldView && mapView === "map") setWorld(MM.inOtherWorld(f));
   if(fly) flyTo(f);
   renderPins(); markListSelection();
   // The card waits until its cover and summary have loaded, then appears complete.
@@ -652,7 +655,7 @@ async function openBook(f, fly){
   detail.innerHTML = `<div class="top">${coverSlot(f, url)}
     <div class="stub"><small>${esc(f.y)}</small><h3>${esc(f.t)}</h3><p class="by">${esc(f.a)}</p>${f.s ? `<p class="series">${esc(f.s)}</p>` : ""}<button class="x" aria-label="Close">×</button></div></div>
     <div class="body">
-      <div><div class="place">${esc(placeLine(f))}</div><div class="coord">${fmtCoord(f.lat, f.lon)}</div></div>
+      <div><div class="place">${esc(placeLine(f))}</div><div class="coord">${MM.inOtherWorld(f) ? "Other worlds · " + esc(MM.worldName(f.w)) : fmtCoord(f.lat, f.lon)}</div></div>
       ${note ? `<p class="note">${esc(note)}</p>` : ""}
       <div id="d-sum">${sumHTML(sum)}</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">${f.r ? `<span class="stars">${stars(f.r)}</span>` : ""}${f.rv ? '<span class="tag">Reviewed</span>' : ""}${f.rc > 1 ? `<span class="tag">Read ${f.rc} times</span>` : ""}${f.ap ? '<span class="tag ap">Approx. setting</span>' : ""}${f.read ? `<span class="tag muted">Read ${esc(fmtDay(f.read))}</span>` : ""}</div>
@@ -889,6 +892,7 @@ function renderAll(){ setOwnerHeader(); renderGenres(); renderPins(); renderList
 
 function showMap(owner, films, mine){
   viewing = {owner, films, mine};
+  if(worldView) setWorld(false);
   const vt = document.querySelector(".viewtog"); if(vt) vt.hidden = !!owner.welcome;   // nothing to list on the welcome
   selected = null; detail.hidden = true; $("#q").value = ""; genreSel = "";
   renderAll(); fitPins(true);
@@ -902,6 +906,13 @@ let featuredReady = null, featuredPlaced = [];
 function placeFeatured(){
   if(featuredReady) return featuredReady;
   featuredReady = (async ()=>{
+    // Emily's shelf lives in the database (book_starter), already placed by the v2 location algorithm.
+    if(sb){
+      try{
+        const {data, error} = await sb.from("book_starter").select("book").order("pos");
+        if(!error && data && data.length){ featuredPlaced = data.map(r=>r.book); FEATURED.books = featuredPlaced; FEATURED.count = featuredPlaced.length; return featuredPlaced; }
+      }catch(e){}
+    }
     const books = FEATURED.books;
     const dets = await MM.pool(books, 3, async f=>f.ol ? {t:f.t, a:f.a, y:f.y, ol:f.ol, coverId:f.coverId}
       : Object.assign({}, (await MM.matchBook(f).catch(()=>null)) || {}, {t:f.t, a:f.a, y:f.y}));
@@ -982,6 +993,43 @@ async function openCountry(geo){
   el.querySelectorAll("ul.cfilms").forEach((ul, k)=>{ const list = k === 0 && home.length ? home : away; ul.querySelectorAll("button").forEach(b=>b.onclick = ()=>openBook(list[+b.dataset.i], true)); lazyCovers(ul, th=>list[+th.dataset.i], "M"); });
 }
 
+/* ---------- Other worlds: the fantasy map (js/worlds.js) ---------- */
+let worldView = false, worldSel = "";
+function worldBooks(){ return filtered().filter(MM.inOtherWorld); }
+function paintWorldTog(){
+  const t = $(".worldtog"); if(!t) return;
+  const n = worldBooks().length;
+  t.hidden = !n || !!(viewing.owner && viewing.owner.welcome);
+  if(!n && worldView) setWorld(false);
+  $("#wcount").textContent = n ? n : "";
+  t.querySelectorAll("button").forEach(b=>b.setAttribute("aria-pressed", String((b.dataset.w === "worlds") === worldView)));
+}
+function setWorld(on){
+  worldView = !!on;
+  $(".mapwrap").classList.toggle("worldview", worldView);
+  $("#worlds").hidden = !worldView;
+  if(!worldView){ worldSel = ""; if(map) map.resize(); }
+  paintWorldTog(); renderWorlds();
+}
+function renderWorlds(){
+  paintWorldTog();
+  if(!worldView) return;
+  MM.renderWorlds($("#worlds"), worldBooks(), {selected, world:worldSel,
+    onBook: f=>openBook(f, false),
+    onWorld: w=>openWorld(w)});
+}
+// Tapping an island lists that world's books in the card.
+function openWorld(w){
+  worldSel = w.name; selected = null; openToken++;
+  detail.innerHTML = `<div class="whead"><small>Other worlds</small><h3>${esc(w.name)}</h3><p>${w.books.length} book${w.books.length===1?"":"s"}</p><button class="x" aria-label="Close">×</button></div>
+    <div class="body"><ul class="wlist">${w.books.map((f,i)=>`<li><button type="button" data-i="${i}"><b>${esc(f.t)}</b><span>${esc(f.a)}${f.p && f.p !== w.name ? " · " + esc(f.p) : ""}</span></button></li>`).join("")}</ul></div>`;
+  detail.hidden = false;
+  detail.querySelector(".x").onclick = ()=>{ worldSel = ""; closeDetail(); };
+  detail.querySelectorAll(".wlist button").forEach(b=>b.onclick = ()=>openBook(w.books[+b.dataset.i], false));
+  renderWorlds();
+}
+document.querySelectorAll(".worldtog button").forEach(b=>b.onclick = ()=>{ closeDetail(); setView("map"); setWorld(b.dataset.w === "worlds"); });
+
 // Map, List and Stats: three ways to look at the same books.
 let mapView = "map", listQuery = "";
 function setView(v){
@@ -1013,10 +1061,24 @@ function renderList2(fresh){
   box.innerHTML = groups.length ? groups.map((g,i)=>`<section>
       <button type="button" class="chead" data-g="${i}"><b>${esc(g.name)}</b><span>${g.films.length}</span></button>
       <ul class="cposters">${g.films.map((f,j)=>`<li><button type="button" data-g="${i}" data-f="${j}" title="${esc(f.t)}${f.a ? " by " + esc(f.a) : ""}"><span class="th" data-g="${i}" data-f="${j}" style="--c:${cloth(f)}">${esc(f.t)}</span><span class="t">${esc(f.t)}</span></button></li>`).join("")}</ul>
-    </section>`).join("") : `<p class="hint">${all.length ? "No country matches that." : "No books yet."}</p>`;
-  box.querySelectorAll(".chead").forEach(b=>b.onclick = ()=>openCountry(groups[+b.dataset.g].geo));
+    </section>`).join("") + otherWorldsList(q) : (otherWorldsList(q) || `<p class="hint">${all.length ? "No country matches that." : "No books yet."}</p>`);
+  box.querySelectorAll(".chead[data-g]").forEach(b=>b.onclick = ()=>openCountry(groups[+b.dataset.g].geo));
+  box.querySelectorAll("[data-wf]").forEach(b=>b.onclick = ()=>{ setView("map"); openBook(worldBooks()[+b.dataset.wf], false); });
+  box.querySelectorAll(".chead[data-world]").forEach(b=>b.onclick = ()=>{ setView("map"); setWorld(true); });
   box.querySelectorAll(".cposters button").forEach(b=>b.onclick = ()=>openBook(groups[+b.dataset.g].films[+b.dataset.f], false));
-  lazyCovers(box, el=>groups[+el.dataset.g].films[+el.dataset.f], "M");
+  const wb = worldBooks();
+  lazyCovers(box, el=>el.dataset.wf != null ? wb[+el.dataset.wf] : groups[+el.dataset.g].films[+el.dataset.f], "M");
+}
+// The list view's last section: books in invented worlds, by world.
+function otherWorldsList(q){
+  const wb = worldBooks(); if(!wb.length) return "";
+  const byW = new Map(); wb.forEach((f,i)=>{ const n = MM.worldName(f.w); if(!byW.has(n)) byW.set(n, []); byW.get(n).push(i); });
+  const rows = [...byW.entries()].filter(([n])=>!q || MM.norm(n).includes(q) || MM.norm("other worlds").includes(q)).sort((a,b)=>a[0].localeCompare(b[0]));
+  if(!rows.length) return "";
+  return `<h3 class="csec" style="margin-top:22px">Other worlds <span>${wb.length} book${wb.length===1?"":"s"}</span></h3>` + rows.map(([n, idx])=>`<section>
+      <button type="button" class="chead" data-world="${esc(n)}"><b>${esc(n)}</b><span>${idx.length}</span></button>
+      <ul class="cposters">${idx.map(i=>{ const f = wb[i]; return `<li><button type="button" data-wf="${i}" title="${esc(f.t)}"><span class="th" data-wf="${i}" style="--c:${cloth(f)}"></span><span class="t">${esc(f.t)}</span></button></li>`; }).join("")}</ul>
+    </section>`).join("");
 }
 // The stats view.
 let statsToken = 0;
@@ -1043,6 +1105,7 @@ async function renderStats(){
     <div class="bignums">
       <div><b>${groups.length}</b><span>countries, ${Math.round(groups.length * 100 / 195)}% of the world</span></div>
       <div><b>${conts.size}</b><span>continent${conts.size===1?"":"s"}</span></div>
+      ${films.some(MM.inOtherWorld) ? `<div><b>${new Set(films.filter(MM.inOtherWorld).map(f=>MM.worldName(f.w))).size}</b><span>other worlds, ${films.filter(MM.inOtherWorld).length} books</span></div>` : ""}
       <div><b id="st-home">–</b><span>by a writer from the country they're set in</span></div>
       ${topPlace && topPlace[1] >= 2 ? `<div><b>${esc(topPlace[0])}</b><span>most-visited place, ${topPlace[1]} books</span></div>`
         : pages ? `<div><b>${pages.toLocaleString()}</b><span>pages read</span></div>`
@@ -1494,7 +1557,7 @@ function renderImport(){
 }
 
 /* ---------- people ---------- */
-const starterCard = () => `<a class="ucard" href="#/u/${FEATURED.username}"><span class="avatar" style="background:${MM.avatarColor(FEATURED.username)}">${FEATURED.name[0]}</span><span style="min-width:0"><b>${esc(FEATURED.name)}</b><span class="m">Starter shelf</span></span><em><b>${FEATURED.books.length}</b><br>books</em></a>`;
+const starterCard = () => `<a class="ucard" href="#/u/${FEATURED.username}"><span class="avatar" style="background:${MM.avatarColor(FEATURED.username)}">${FEATURED.name[0]}</span><span style="min-width:0"><b>${esc(FEATURED.name)}</b><span class="m">Starter shelf</span></span><em><b>${FEATURED.books.length || FEATURED.count || 0}</b><br>books</em></a>`;
 async function renderExplore(){
   const el = $("#explore");
   if(!sb){

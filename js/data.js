@@ -327,7 +327,7 @@ MM.curated = function(det){
   const list = window.FEATURED && window.FEATURED.books; if(!list || !det) return null;
   const k = MM.bookKey(det);
   const f = list.find(x=>MM.bookKey(x) === k && x.lat != null);
-  return f ? {p:f.p, c:f.c, cont:f.cont || "", lat:f.lat, lon:f.lon, ap:f.ap ? 1 : 0, n:f.n || "", src:"curated"} : null;
+  return f ? {p:f.p, c:f.c, cont:f.cont || "", lat:f.lat, lon:f.lon, ap:f.ap ? 1 : 0, n:f.n || "", src:f.src || "curated"} : null;
 };
 
 // Resolve books (summaries with ol/qid) to settings. Steps:

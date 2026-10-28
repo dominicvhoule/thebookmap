@@ -411,3 +411,50 @@ a{color:var(--pin);text-underline-offset:2px}
 .howvid{margin:14px 0 4px}
 .howvid video{display:block;width:100%;aspect-ratio:1280/804;background:var(--line);border:1px solid var(--line)}
 .howvid figcaption{font-size:13px;line-height:1.45;color:var(--muted);margin-top:6px}
+
+/* ---------- Other worlds (fantasy map) ---------- */
+.worldtog{display:flex;border:1px solid var(--line);background:var(--card);flex:none}
+.worldtog[hidden]{display:none}
+.worldtog button{height:36px;padding:0 12px;border:0;background:none;cursor:pointer;font-family:var(--f-mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink);white-space:nowrap}
+.worldtog button+button{border-left:1px solid var(--line)}
+.worldtog button span{color:var(--muted);margin-left:4px}
+.worldtog button[aria-pressed="true"]{background:#6b4a1f;color:#f6ecd2}
+.worldtog button[aria-pressed="true"] span{color:#e9cf8e}
+.worlds{position:absolute;inset:0;z-index:2;background:#e9dcb8;display:flex;align-items:center;justify-content:center}
+.worlds svg{width:100%;height:100%;display:block}
+.mapwrap.worldview .legend,.mapwrap.worldview .zoom{display:none}
+.worlds .paper{fill:#eadfbf}
+.worlds .frame{fill:none;stroke:#6b4a1f;stroke-width:2}
+.worlds .frame.thin{stroke-width:.8}
+.worlds .wv{fill:none;stroke:#8a6a3a;stroke-width:1;opacity:.45}
+.worlds .wtitle{font-family:var(--f-display);font-style:italic;font-weight:700;font-size:30px;fill:#3b2810}
+.worlds .wsub{font-family:var(--f-mono);font-size:11px;letter-spacing:.08em;fill:#6b4a1f;text-transform:uppercase}
+.worlds .wc-dark{fill:#3b2810}.worlds .wc-light{fill:#f3e8c8;stroke:#3b2810;stroke-width:.6}
+.worlds .wc-ring{fill:none;stroke:#3b2810;stroke-width:.8}
+.worlds .wc text{font-family:var(--f-display);font-weight:700;font-size:15px;fill:#3b2810}
+.worlds .isl{cursor:pointer}
+.worlds .land{fill:#d8c48f;stroke:none;transition:fill .15s}
+.worlds .shore{fill:none;stroke:#4a3214;stroke-width:1.6}
+.worlds .rip{fill:none;stroke:#6b4a1f;stroke-width:.8;opacity:.35}
+.worlds .rip.r2{opacity:.18;stroke-dasharray:3 4}
+.worlds .hill{fill:none;stroke:#5c4218;stroke-width:1.3;stroke-linejoin:round}
+.worlds .isl:hover .land,.worlds .isl:focus .land,.worlds .isl.on .land{fill:#cfb574}
+.worlds .isl:focus{outline:none}
+.worlds .wl{font-family:var(--f-display);font-style:italic;font-weight:700;font-size:17px;fill:#2e1f0b;paint-order:stroke;stroke:#eadfbf;stroke-width:4px;pointer-events:none}
+.worlds .wn{font-family:var(--f-mono);font-size:10px;letter-spacing:.08em;fill:#6b4a1f;text-transform:uppercase;paint-order:stroke;stroke:#eadfbf;stroke-width:3px;pointer-events:none}
+.worlds .wpin{cursor:pointer}
+.worlds .wpin circle{fill:#7A2833;stroke:#f6ecd2;stroke-width:2}
+.worlds .wpin:hover circle,.worlds .wpin:focus circle,.worlds .wpin.on circle{fill:#C9971C;stroke:#2e1f0b}
+.worlds .wpin:focus{outline:none}
+.worlds-empty{display:grid;gap:6px;text-align:center;max-width:320px;color:#3b2810;font-size:14px}
+.worlds-empty b{font-family:var(--f-display);font-size:22px}
+.wlist{list-style:none;margin:0;padding:0;display:grid;gap:2px}
+.wlist button{display:grid;gap:2px;width:100%;text-align:left;border:0;background:none;padding:8px 0;border-bottom:1px solid var(--line);cursor:pointer;color:var(--ink);font:inherit}
+.wlist button span{font-size:13px;color:var(--muted)}
+.wlist button:hover b{text-decoration:underline}
+@media (max-width:860px){.worldtog button{height:32px;padding:0 8px;letter-spacing:.06em}.mapside{flex-wrap:wrap;justify-content:flex-end}}
+.whead{position:relative;padding:18px 48px 4px 20px}
+.whead small{font-family:var(--f-mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.whead h3{margin:4px 0 2px;font-family:var(--f-display);font-style:italic;font-weight:700;font-size:26px;line-height:1.1}
+.whead p{margin:0;color:var(--muted);font-size:14px}
+.whead .x{position:absolute;top:12px;right:12px}
