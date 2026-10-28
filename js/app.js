@@ -1014,7 +1014,7 @@ function setWorld(on){
 function renderWorlds(){
   paintWorldTog();
   if(!worldView) return;
-  MM.renderWorlds($("#worlds"), worldBooks(), {selected, world:worldSel,
+  MM.renderWorlds($("#worlds"), worldBooks(), {selected, world:worldSel, icon:ICON,
     onBook: f=>openBook(f, false),
     onWorld: w=>openWorld(w)});
 }
@@ -1028,6 +1028,7 @@ function openWorld(w){
   detail.querySelectorAll(".wlist button").forEach(b=>b.onclick = ()=>openBook(w.books[+b.dataset.i], false));
   renderWorlds();
 }
+window.addEventListener("resize", ()=>{ if(worldView) renderWorlds(); });
 document.querySelectorAll(".worldtog button").forEach(b=>b.onclick = ()=>{ closeDetail(); setView("map"); setWorld(b.dataset.w === "worlds"); });
 
 // Map, List and Stats: three ways to look at the same books.
@@ -1529,7 +1530,10 @@ function renderImport(){
   const el = $("#import");
   if(signedOut()) return needAccount(el, "Goodreads", "import your Goodreads library and bring in your books");
   showMine_keepView();
-  const rep = MM.lsGet(grReportKey(), null);
+  // The import report is kept in this browser. If the books it describes are no longer on the map (for
+  // example after a reset), it's out of date, so it's dropped rather than shown.
+  let rep = MM.lsGet(grReportKey(), null);
+  if(rep && booksReady && !myBooks.length){ MM.lsSet(grReportKey(), null); rep = null; }
   const missing = rep ? rep.missed.filter(m=>!onMyMap(m)) : [];
   el.innerHTML = `<h2 class="h">Goodreads</h2>
     <p class="hint">Bring in every book you've read on Goodreads, with your ratings and dates read. Goodreads exports your whole library as one file, with no limit on how many books, and it works whether your profile is public or private.</p>
@@ -1538,14 +1542,14 @@ function renderImport(){
       <figcaption>On Goodreads: <b>My Books</b> → <b>Import and export</b> (left, under Tools) → <b>Export Library</b>. When the link to your file appears under the button, click it to download.</figcaption>
     </figure>
     <ol class="howto">
-      <li><a href="https://www.goodreads.com/review/import" target="_blank" rel="noopener">Export your library ↗</a><span>on Goodreads, then Export Library</span></li>
-      <li><b>Save the CSV file</b><span>goodreads_library_export.csv</span></li>
-      <li><label class="btn" for="grcsv" tabindex="0">Choose the file</label><input type="file" id="grcsv" accept=".csv,text/csv" hidden></li>
+      <li><span class="n">1</span><span class="tx"><a href="https://www.goodreads.com/review/import" target="_blank" rel="noopener">Export your library on Goodreads ↗</a><span>My Books → Import and export → Export Library</span></span></li>
+      <li><span class="n">2</span><span class="tx"><b>Download the file Goodreads makes</b><span>It's called goodreads_library_export.csv</span></span></li>
+      <li><span class="n">3</span><span class="tx"><b>Bring it in here</b><span>Your books are placed on your map</span></span><label class="btn small" for="grcsv" tabindex="0">Choose the file</label><input type="file" id="grcsv" accept=".csv,text/csv" hidden></li>
     </ol>
     <p class="hint" id="grcs" aria-live="polite"></p>
     <p class="hint">Read more books since? Export again and import the new file: books already on your map are skipped.</p>
     ${rep ? `<div class="box">
-      <p class="ok" style="margin:0"><b>${rep.total} book${rep.total===1?"":"s"}</b> imported${missing.length ? `, <b>${missing.length}</b> still need${missing.length===1?"s":""} a pin` : ", all on your map"}.</p>
+      <p class="ok" style="margin:0"><b>${myBooks.length} book${myBooks.length===1?"":"s"}</b> on your map${missing.length ? `, <b>${missing.length}</b> still need${missing.length===1?"s":""} a pin` : ", all on your map"}.</p>
       ${missing.length ? `<p class="hint">We couldn't work out where ${missing.length===1 ? "this one takes" : "these take"} place. Tap Place it to pin ${missing.length===1 ? "it" : "each one"} yourself.</p>
       <ul class="results">${missing.slice(0, 200).map((m,i)=>`<li><button data-i="${i}"><span class="th" style="--c:${cloth(m)};${MM.coverURL(m,"S") ? `background-image:url('${esc(MM.coverURL(m,"S"))}')` : ""}"></span><span style="min-width:0"><b>${esc(m.t)}</b><span class="m">${esc(m.a)}</span><span class="m" style="color:var(--rust)"> · Place it →</span></span></button></li>`).join("")}</ul>` : ""}
     </div>` : ""}

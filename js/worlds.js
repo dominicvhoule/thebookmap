@@ -57,26 +57,27 @@
 
   // Islands laid out on a fixed chart, biggest first, each in the free spot nearest the middle.
   let W = 1000, H = 640;   // the chart's size; set to the screen's shape on each draw
-  let TOP = 130, BOTTOM = 96;   // keep islands clear of the map's toolbar (top) and the title (bottom)
-  function layout(worlds){
+  let TOP = 130, BOTTOM = 24, PX = 1;   // space kept clear for the map's toolbar (top); PX: screen pixels per chart unit
+  function layout(worlds, minScale, force){
     // Try full-size islands first; if they don't all fit, shrink them a little and try again.
-    for(let scale = 1; scale > 0.25; scale *= 0.9){ const out = tryLayout(worlds, scale); if(out) return out; }
-    return tryLayout(worlds, 0.25, true);
+    for(let scale = 1; scale >= minScale; scale *= 0.9){ const out = tryLayout(worlds, scale); if(out) return out; }
+    return force ? tryLayout(worlds, minScale, true) : null;
   }
   function tryLayout(worlds, scale, force){
     const placed = [];
     for(let i=0; i<worlds.length; i++){
       const w = worlds[i];
-      const r = Math.min(120, 30 + 19 * Math.sqrt(w.books.length)) * scale;
+      const r = Math.min(130, 34 + 20 * Math.sqrt(w.books.length)) * scale;
       let best = null;
       for(let step=0; step<1600 && !best; step++){
         const a = step * 2.399963, d = 6 * Math.sqrt(step) * 3.2;
         const x = W / 2 + Math.cos(a) * d * 1.45, y = (TOP + H - BOTTOM) / 2 + Math.sin(a) * d * 0.95;
-        if(x - r < 40 || x + r > W - 40 || y - r * 0.85 < TOP || y + r * 0.85 + 34 > H - BOTTOM) continue;
+        if(x - r < 20 || x + r > W - 20 || y - r * 0.85 < TOP || y + r * 0.85 + 40 / PX > H - BOTTOM) continue;
         // Each island needs room for itself and its name underneath (names are about 8.8 units a letter).
-        const hw = Math.max(r * 1.08, w.name.length * 4.5 + 6);
+        const hw = Math.max(r * 1.08, (w.name.length * 3.9 + 10) / PX);
         if(x - hw < 30 || x + hw > W - 30) continue;
-        if(placed.every(p=>Math.abs(p.x - x) > p.hw + hw + 8 || (y + r * 0.85 + 40 < p.y - p.r * 0.85 - 6) || (p.y + p.r * 0.85 + 40 < y - r * 0.85 - 6))) best = {x, y, hw};
+        const lh = 40 / PX;
+        if(placed.every(p=>Math.abs(p.x - x) > p.hw + hw + 8 || (y + r * 0.85 + lh < p.y - p.r * 0.85 - 6) || (p.y + p.r * 0.85 + lh < y - r * 0.85 - 6))) best = {x, y, hw};
       }
       if(!best && !force) return null;
       if(!best) best = {x: 80 + (i * 137) % (W - 160), y: TOP + (i * 89) % Math.max(60, H - TOP - BOTTOM), hw: r};
@@ -84,10 +85,10 @@
     }
     return placed;
   }
-  // Book pins inside an island: a sunflower spiral, so any number fits evenly.
-  function pinSpots(w){
-    const n = w.books.length, out = [];
-    const spread = w.r * (n === 1 ? 0 : 0.62);
+  // Pins inside an island: a sunflower spiral, so any number fits evenly.
+  function pinSpots(w, n){
+    const out = [];
+    const spread = n === 1 ? 0 : Math.max(w.r * 0.55, 15 * Math.sqrt(n) / PX);
     for(let i=0; i<n; i++){
       const rr = spread * Math.sqrt((i + 0.5) / n), a = i * 2.399963;
       out.push([w.x + Math.cos(a) * rr * 1.05, w.y + Math.sin(a) * rr * 0.78]);
@@ -95,91 +96,63 @@
     return out;
   }
 
-  function compass(x, y, s){
-    const pt = (a, l) => [x + Math.sin(a) * l, y - Math.cos(a) * l];
-    let d = "";
-    for(let i=0; i<8; i++){
-      const a = i * Math.PI / 4, l = i % 2 ? s * 0.55 : s, w = s * 0.13;
-      const tip = pt(a, l), left = pt(a - Math.PI / 2, w), right = pt(a + Math.PI / 2, w);
-      d += `<path d="M${x},${y}L${left[0]},${left[1]}L${tip[0]},${tip[1]}Z" class="wc-dark"/><path d="M${x},${y}L${right[0]},${right[1]}L${tip[0]},${tip[1]}Z" class="wc-light"/>`;
-    }
-    const n = pt(0, s + 13);
-    return `<g class="wc" aria-hidden="true"><circle cx="${x}" cy="${y}" r="${s * 0.72}" class="wc-ring"/>${d}<text x="${n[0]}" y="${n[1]}" text-anchor="middle">N</text></g>`;
-  }
-  function waves(rnd){
-    let out = "";
-    for(let i=0; i<26; i++){
-      const x = 40 + rnd() * (W - 80), y = 80 + rnd() * (H - 120), s = 7 + rnd() * 6;
-      out += `<path d="M${x},${y}q${s / 2},-${s / 2.4} ${s},0t${s},0" class="wv"/>`;
-    }
-    return out;
-  }
-
-  // Draw the chart into `el`. books: the books on it; opts.selected: the open book; opts.onBook(f); opts.onWorld(world).
+  // Draw the map into `el`, in the Earth map's style: the same sea, land and border colours (they follow dark
+  // mode), uppercase map lettering, and the same pin buttons. Books at the same place in a world share one pin
+  // with a count, as on Earth.
+  // books: the books on it; opts.selected: the open book; opts.world: the island whose list is open;
+  // opts.icon: the pin's book icon; opts.onBook(f); opts.onWorld(world).
   MM.renderWorlds = function(el, books, opts = {}){
     const cw = el.clientWidth || 1000, ch = el.clientHeight || 640;
     W = cw < 640 ? 640 : 1000;
-    H = Math.round(Math.min(W * 1.6, Math.max(W * 0.56, W * ch / cw)));
+    // The chart is as wide as the map and at least as tall; when the islands don't fit at a readable size
+    // (many worlds on a phone), it grows taller and scrolls inside the map area.
+    const s = cw / W, ox = 0, oy = 0;
+    H = Math.round(W * ch / cw);
+    PX = s;
     const bar = el.parentElement && el.parentElement.querySelector(".mapbar");
-    TOP = Math.max(90, ((bar ? bar.getBoundingClientRect().bottom - el.getBoundingClientRect().top : 90) + 14) * W / cw);
+    TOP = Math.max(60, ((bar ? bar.getBoundingClientRect().bottom - el.getBoundingClientRect().top : 90) + 16) / s);
+    BOTTOM = 24 / s;
     const byWorld = new Map();
     books.filter(MM.inOtherWorld).forEach(f=>{
       const name = MM.worldName(f.w);
       if(!byWorld.has(name)) byWorld.set(name, {name, books:[]});
       byWorld.get(name).books.push(f);
     });
-    const worlds = layout([...byWorld.values()].sort((a,b)=>b.books.length - a.books.length || a.name.localeCompare(b.name)));
-    if(!worlds.length){
+    const list = [...byWorld.values()].sort((a,b)=>b.books.length - a.books.length || a.name.localeCompare(b.name));
+    let worlds = null;
+    for(let grow = 0; grow < 8 && !worlds; grow++){ worlds = layout(list, 0.6); if(!worlds) H = Math.round(H * 1.2); }
+    if(!worlds) worlds = layout(list, 0.5, true);
+    if(!list.length){
       el.innerHTML = `<div class="worlds-empty"><b>No other worlds yet</b><span>Books set in invented worlds, like Middle-earth or Narnia, appear here as islands.</span></div>`;
       return;
     }
-    const sea = seeded("sea");
-    let islands = "", pins = "", labels = "";
+    const at = (x, y) => `left:${(ox + x * s).toFixed(1)}px;top:${(oy + y * s).toFixed(1)}px`;
+    let islands = "", overlay = "";
+    const spots = [];
     worlds.forEach(w=>{
-      const rnd = seeded(w.name);
-      const d = coast(w.x, w.y, w.r, rnd);
-      const ripple1 = coast(w.x, w.y, w.r, seeded(w.name), 1.16), ripple2 = coast(w.x, w.y, w.r, seeded(w.name), 1.32);
-      const hills = [];
-      const nh = Math.min(6, Math.floor(w.r / 22));
-      for(let i=0; i<nh; i++){
-        const a = rnd() * Math.PI * 2, rr = w.r * (0.25 + rnd() * 0.35);
-        const hx = w.x + Math.cos(a) * rr, hy = w.y + Math.sin(a) * rr * 0.7, hs = 5 + rnd() * 4;
-        hills.push(`<path d="M${(hx - hs).toFixed(1)},${hy.toFixed(1)}l${hs},-${(hs * 1.2).toFixed(1)}l${hs},${(hs * 1.2).toFixed(1)}" class="hill"/>`);
-      }
-      const sel = opts.world === w.name;
-      islands += `<g class="isl${sel ? " on" : ""}" data-world="${esc(w.name)}" tabindex="0" role="button" aria-label="${esc(w.name)}, ${w.books.length} book${w.books.length === 1 ? "" : "s"}">
-        <path d="${ripple2}" class="rip r2"/><path d="${ripple1}" class="rip"/>
-        <path d="${d}" class="land"/><path d="${d}" class="shore"/>${hills.join("")}</g>`;
-      pinSpots(w).forEach(([x, y], i)=>{
-        const f = w.books[i], on = opts.selected === f;
-        pins += `<g class="wpin${on ? " on" : ""}" data-world="${esc(w.name)}" data-i="${i}" tabindex="0" role="button" aria-label="${esc(f.t)}${f.p ? ", " + esc(f.p) : ""}">
-          <circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${on ? 8 : 6}"/><title>${esc(f.t)}${f.p ? " · " + esc(f.p) : ""}</title></g>`;
+      const d = coast(w.x, w.y, w.r, seeded(w.name));
+      islands += `<path d="${d}" class="land${opts.world === w.name ? " on" : ""}" data-world="${esc(w.name)}"/>`;
+      // One pin per place within the world (or one for the whole world), like books sharing a spot on Earth.
+      const byPlace = new Map();
+      w.books.forEach(f=>{ const k = MM.norm ? MM.norm(f.p || "") : String(f.p || "").toLowerCase(); if(!byPlace.has(k)) byPlace.set(k, []); byPlace.get(k).push(f); });
+      const groups = [...byPlace.values()];
+      pinSpots(w, groups.length).forEach(([x, y], i)=>{
+        const g = groups[i], lone = g.length === 1, sel = !!opts.selected && g.includes(opts.selected);
+        const approx = g.every(f=>f.ap);
+        spots.push({w, g});
+        overlay += `<button type="button" class="gpin wp${lone ? "" : " many"}${sel ? " sel" : ""}${approx ? " approx" : ""}" data-s="${spots.length - 1}" style="${at(x, y)}"
+          aria-label="${esc(g.map(f=>f.t).join(", "))}" title="${esc(lone ? g[0].t : g.length + " books")}"><span class="b">${lone ? (opts.icon || "") : `<b>${g.length}</b>`}</span></button>`;
       });
-      const ly = w.y + w.r * 0.82 + 20;
-      labels += `<text class="wl" x="${w.x.toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="middle">${esc(w.name)}</text>
-        <text class="wn" x="${w.x.toFixed(1)}" y="${(ly + 15).toFixed(1)}" text-anchor="middle">${w.books.length} book${w.books.length === 1 ? "" : "s"}</text>`;
+      overlay += `<button type="button" class="wlabel" data-world="${esc(w.name)}" style="${at(w.x, w.y + w.r * 0.82 + 8 / s)}">${esc(w.name)}<span>${w.books.length} book${w.books.length === 1 ? "" : "s"}</span></button>`;
     });
-    el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Map of other worlds: ${worlds.length} invented world${worlds.length === 1 ? "" : "s"}">
-      <defs>
-        <filter id="wpaper" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency=".9" numOctaves="2" seed="4" result="n"/><feColorMatrix in="n" type="matrix" values="0 0 0 0 0.35  0 0 0 0 0.27  0 0 0 0 0.14  0 0 0 .09 0"/><feComposite in2="SourceGraphic" operator="over"/></filter>
-        <radialGradient id="wvig" cx="50%" cy="50%" r="70%"><stop offset="60%" stop-color="#000" stop-opacity="0"/><stop offset="100%" stop-color="#5a3d12" stop-opacity=".22"/></radialGradient>
-      </defs>
-      <rect width="${W}" height="${H}" class="paper"/><rect width="${W}" height="${H}" filter="url(#wpaper)" fill="transparent"/><rect width="${W}" height="${H}" fill="url(#wvig)"/>
-      <rect x="14" y="14" width="${W - 28}" height="${H - 28}" class="frame"/><rect x="20" y="20" width="${W - 40}" height="${H - 40}" class="frame thin"/>
-      <g aria-hidden="true">${waves(sea)}</g>
-      ${compass(W - 84, H - 84, 34)}
-      <text class="wtitle" x="44" y="${H - 58}">Other Worlds</text>
-      <text class="wsub" x="46" y="${H - 38}">${books.filter(MM.inOtherWorld).length} books in ${worlds.length} invented world${worlds.length === 1 ? "" : "s"}</text>
-      ${islands}${labels}${pins}
-    </svg>`;
+    el.innerHTML = `<div class="wcanvas" style="height:${Math.round(H * s)}px"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Map of other worlds: ${worlds.length} invented world${worlds.length === 1 ? "" : "s"}">${islands}</svg><div class="wover">${overlay}</div></div>`;
     const flat = new Map(worlds.map(w=>[w.name, w]));
-    el.querySelectorAll(".wpin").forEach(g=>{
-      const go = e=>{ e.stopPropagation(); opts.onBook && opts.onBook(flat.get(g.dataset.world).books[+g.dataset.i]); };
-      g.onclick = go; g.onkeydown = e=>{ if(e.key === "Enter" || e.key === " "){ e.preventDefault(); go(e); } };
+    el.querySelectorAll(".gpin.wp").forEach(b=>b.onclick = e=>{
+      e.stopPropagation();
+      const {w, g} = spots[+b.dataset.s];
+      if(g.length === 1) opts.onBook && opts.onBook(g[0]); else opts.onWorld && opts.onWorld(w);
     });
-    el.querySelectorAll(".isl").forEach(g=>{
-      const go = ()=>opts.onWorld && opts.onWorld(flat.get(g.dataset.world));
-      g.onclick = go; g.onkeydown = e=>{ if(e.key === "Enter" || e.key === " "){ e.preventDefault(); go(); } };
-    });
+    el.querySelectorAll(".wlabel").forEach(b=>b.onclick = ()=>opts.onWorld && opts.onWorld(flat.get(b.dataset.world)));
+    el.querySelectorAll("path.land").forEach(p=>p.onclick = ()=>opts.onWorld && opts.onWorld(flat.get(p.dataset.world)));
   };
 })();
