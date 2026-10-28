@@ -644,6 +644,8 @@ async function cardParts(b, ms = 5000){
   const [url, sum] = await Promise.all([timeout(cover, ms), timeout(MM.bookSummary(b).catch(()=>null), ms)]);
   return {url, sum};
 }
+// How the location was chosen stays out of the way: a small "Why this location?" button reveals it.
+const whyHTML = note => note ? `<details class="why"><summary>Why this location?</summary><p class="note">${esc(note)}</p></details>` : "";
 async function openBook(f, fly){
   const token = ++openToken;
   selected = f; preview = null;
@@ -659,7 +661,7 @@ async function openBook(f, fly){
     <div class="stub"><small>${esc(f.y)}</small><h3>${esc(f.t)}</h3><p class="by">${esc(f.a)}</p>${f.s ? `<p class="series">${esc(f.s)}</p>` : ""}<button class="x" aria-label="Close">×</button></div></div>
     <div class="body">
       <div><div class="place">${esc(placeLine(f))}</div><div class="coord">${MM.inOtherWorld(f) ? "Other worlds · " + esc(MM.worldName(f.w)) : fmtCoord(f.lat, f.lon)}</div></div>
-      ${note ? `<p class="note">${esc(note)}</p>` : ""}
+      ${whyHTML(note)}
       <div id="d-sum">${sumHTML(sum)}</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">${f.r ? `<span class="stars">${stars(f.r)}</span>` : ""}${f.rv ? '<span class="tag">Reviewed</span>' : ""}${f.rc > 1 ? `<span class="tag">Read ${f.rc} times</span>` : ""}${f.ap ? '<span class="tag ap">Approx. setting</span>' : ""}${f.read ? `<span class="tag muted">Read ${esc(fmtDay(f.read))}</span>` : ""}</div>
       ${mine ? `<div class="cta"><button class="btn ghost small" id="d-move">Move pin</button><button class="btn ghost small" id="d-del">Remove</button></div>` : (onMyMap(f) ? "" : `<div class="cta">${wantBtn(f)}</div>`)}
@@ -730,7 +732,7 @@ async function openPreview(m, from){
   if(token !== openToken) return;
   const det = det0 || m;
   const s = settings && settings[0];
-  const placeBlock = s => s ? `<div><div class="place">${esc(placeLine({p:s.p, c:s.c}))}</div>${MM.cleanNote(s.n, placeLine({p:s.p, c:s.c})) ? `<p class="note" style="margin:6px 0 0">${esc(MM.cleanNote(s.n, placeLine({p:s.p, c:s.c})))}</p>` : ""}</div>` : `<p class="hint" style="margin:0">We couldn't find where this one is set.</p>`;
+  const placeBlock = s => s ? `<div><div class="place">${esc(placeLine({p:s.p, c:s.c}))}</div>${whyHTML(MM.cleanNote(s.n, placeLine({p:s.p, c:s.c})))}</div>` : `<p class="hint" style="margin:0">We couldn't find where this one is set.</p>`;
   const showPlace = s => { if(s && isFinite(s.lat)){ preview = {lat:s.lat, lon:s.lon}; selected = null; renderPins(); flyTo({lat:s.lat, lon:s.lon}); } };
   showPlace(s);
   if(settings === null) setP.then(r=>{ const el = token === openToken && $("#pv-place"); if(el){ const s2 = r && r[0]; el.innerHTML = placeBlock(s2); showPlace(s2); } });

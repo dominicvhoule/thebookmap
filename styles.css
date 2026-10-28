@@ -161,6 +161,12 @@ a{color:var(--pin);text-underline-offset:2px}
 .detail .place{font-weight:600}
 .detail .coord{font-family:var(--f-mono);font-size:11.5px;color:var(--muted)}
 .detail .note{font-size:14px;color:var(--muted);margin:0}
+.detail .why{margin:0}
+.detail .why summary{display:inline-block;cursor:pointer;list-style:none;font-family:var(--f-mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;line-height:1.2;color:var(--muted);border:1px solid var(--line);padding:4px 8px;user-select:none}
+.detail .why summary::-webkit-details-marker{display:none}
+.detail .why summary:hover,.detail .why[open] summary{color:var(--ink);border-color:var(--ink)}
+.detail .why summary:focus-visible{outline:2px solid currentColor;outline-offset:2px}
+.detail .why .note{margin:8px 0 0}
 .detail .multi{display:grid;margin:0;padding:0;list-style:none}
 .detail .multi button{width:100%;text-align:left;background:none;border:0;border-top:1px solid var(--line);padding:9px 0;cursor:pointer;display:flex;justify-content:space-between;gap:8px}
 .detail .multi button:hover b{color:var(--pin)}
