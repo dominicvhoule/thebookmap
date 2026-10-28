@@ -1494,7 +1494,7 @@ function renderImport(){
 }
 
 /* ---------- people ---------- */
-const starterCard = () => `<a class="ucard" href="#/u/${FEATURED.username}"><span class="avatar" style="background:${MM.avatarColor(FEATURED.username)}">${FEATURED.name[0]}</span><span style="min-width:0"><b>${esc(FEATURED.name)}</b><span class="m">Starter shelf · hand-checked settings</span></span><em><b>${FEATURED.books.length}</b><br>books</em></a>`;
+const starterCard = () => `<a class="ucard" href="#/u/${FEATURED.username}"><span class="avatar" style="background:${MM.avatarColor(FEATURED.username)}">${FEATURED.name[0]}</span><span style="min-width:0"><b>${esc(FEATURED.name)}</b><span class="m">Starter shelf</span></span><em><b>${FEATURED.books.length}</b><br>books</em></a>`;
 async function renderExplore(){
   const el = $("#explore");
   if(!sb){
