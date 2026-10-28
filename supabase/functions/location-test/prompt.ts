@@ -2,7 +2,7 @@
 // Shared by the test bench (location-test) and, once it wins the test, the live pipeline.
 // The rules mirror the Project doc location-pipeline-v2.md; edit them here.
 
-export const PROMPT_VERSION = "v2.2";
+export const PROMPT_VERSION = "v2.3";
 
 export function locationPrompt(b: { title: string; author: string; year?: number | null; description?: string | null }) {
   return `You help a website put every book a reader has read on a world map.
@@ -18,15 +18,22 @@ STEP 1. Sort the book into one type:
 - "none": the book has no physical setting: philosophy, self-help, maths, science explainers, essays on ideas, most poetry collections.
 
 STEP 2. Answer for that type:
-- real: "main" is where most of the book happens, as specific as you can honestly be: a city or site if the book is centred there, otherwise the state, province or region where most of it happens. Give a state or province whenever the book can reasonably provide one. Only if the book is about the country in general (a national history, a survey of the whole country) give the country itself, with "precision": "country". If the book moves between places, list them in story order in "journey" with a short note each (e.g. "Born in Ajaccio, 1769"); otherwise leave "journey" empty. For biographies and memoirs, use where most of the life in the book takes place. FICTIONAL PLACES: if the main place is fictional (an invented town, farm, island or house), readers will see its fictional name, so always give it in "invented_name". Then decide whether you are CONFIDENT of its real physical location. Confident means the book or its author says where it is, or it is widely accepted (Maycomb is Monroeville, Alabama; Hardy's Casterbridge is Dorchester, Dorset). Your own guess does not count. If confident: type "real", the real location in "main", and "real_basis": "stated" (by the book or author) or "accepted". If not confident (an island, town or country the book never places and the author never identified): type "invented", the fictional name or a short label in "world", "main" null, "real_basis": "unknown".
+- real: "main" is the place this book is anchored to. Weigh two things together:
+  (a) where the book happens, giving most weight to its most important and impactful parts, not just the page count;
+  (b) the place readers associate with the book: how it is known, taught and talked about. This weighs heavily. If readers strongly associate a book with one place, choose that place even if more pages happen somewhere else.
+  By kind of book:
+  - Novels and other stories: the place readers associate with the book, weighed with where it happens.
+  - Journeys (quests, road trips, voyages, migrations): the anchor or origin of the story, where it starts and where the traveller returns, unless a later part of the journey is far bigger and more impactful and is what readers remember the book for; then that place.
+  - Memoirs, autobiographies and biographies: the part of the life the book is actually about. That is usually the person's origin (where they grew up and were formed), unless the book is mainly about their life somewhere else.
+  Be only as specific as you are certain of: a city or site if the book is clearly anchored there, otherwise the state, province or region. Give a state or province whenever the book can reasonably provide one. Only if the book is about the country in general (a national history, a survey of the whole country) give the country itself, with "precision": "country". If the book moves between places, list them in story order in "journey" with a short note each (e.g. "Born in Ajaccio, 1769"); otherwise leave "journey" empty. FICTIONAL PLACES: if the main place is fictional (an invented town, farm, island or house), readers will see its fictional name, so always give it in "invented_name". Then decide whether you are CONFIDENT of its real physical location. Confident means the book or its author says where it is, or it is widely accepted (Maycomb is Monroeville, Alabama; Hardy's Casterbridge is Dorchester, Dorset). Your own guess does not count. If confident: type "real", the real location in "main", and "real_basis": "stated" (by the book or author) or "accepted". If not confident (an island, town or country the book never places and the author never identified): type "invented", the fictional name or a short label in "world", "main" null, "real_basis": "unknown".
 - invented: give the world's name (or the fictional place's name) in "world". Leave "main" null.
 - none: "main" is the author's location (the city, or at least the state/province, where reasonably known), weighed in this order: where they were based when they wrote this book; then where they spent most of their working life; then their citizenship; birthplace counts least. (Jacques Derrida, born in Algeria, career in Paris: Paris.) Say which of these you used in "author_basis".
 
-Place names must be real names a map can find: "Salinas Valley", "Oklahoma", "Anhui", "Paris". Never a description ("Route 66 corridor", "rural England", "an unnamed island"): put descriptions in "why". "region" is the state, province or equivalent first-level division (null for a city-state or a country-level answer). "country" is always one modern country.
+Place names must be real names a map can find: "Loire Valley", "Ontario", "Kyoto", "Lyon". Never a description ("the Rhine corridor", "rural Provence", "an unnamed village"): put descriptions in "why". "region" is the state, province or equivalent first-level division (null for a city-state or a country-level answer). "country" is always one modern country.
 
 STEP 3. Be honest about what you know:
 - "known": "well" if you know this book itself; "description" if you are working mainly from the description and the author; "guessing" if you are not sure. Never present a guess as certain.
-- "ambiguous": true only when two or more places are equally defensible as the main one (a memoir split evenly between cities). Put them all in "candidates", main first.
+- "ambiguous": true when two or more places are equally strong as the anchor (a novel split evenly between two cities, a memoir split between two homes). Put them all in "candidates", main first; readers will help decide.
 
 Reply with only this JSON object, no other text:
 {"type": "real" | "invented" | "none",
