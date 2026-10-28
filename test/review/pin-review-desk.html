@@ -228,13 +228,17 @@ function answerCard(k, name, a, v, err){
   if(!a){ body = `<p class="err">No usable answer${err ? " (" + esc(err) + ")" : ""}.</p>`; }
   else{
     const m = a.main || {};
-    const where = a.type === "invented" ? esc(a.world || "Unnamed world") : esc(m.place || "—");
-    const sub = a.type === "invented" ? "" : [m.region, m.country].filter(Boolean).map(esc).join(", ");
+    // Fictional place on the real map: readers see the fictional name; the real place is only the pin.
+    const fic = a.type === "real" && a.invented_name;
+    const where = a.type === "invented" ? esc(a.world || "Unnamed world") : fic ? esc(a.invented_name) : esc(m.place || "—");
+    const sub = a.type === "invented" ? (a.real_basis === "unknown" ? "Fictional map: real location unknown" : "Fictional map")
+      : fic ? "Pin: " + [m.place, m.region, m.country].filter(Boolean).map(esc).join(", ") + (a.real_basis ? ` (${a.real_basis === "stated" ? "stated by book/author" : a.real_basis === "accepted" ? "widely accepted" : esc(a.real_basis)})` : "")
+      : [m.region, m.country].filter(Boolean).map(esc).join(", ");
     const jr = (a.journey || []).length > 1 ? `<details><summary class="sub">Journey · ${a.journey.length} stops</summary><ol class="jr">${a.journey.map(j => `<li>${esc(j.place)}${j.country ? ", " + esc(j.country) : ""}${j.note ? ` <span class="sub">· ${esc(j.note)}</span>` : ""}</li>`).join("")}</ol></details>` : "";
     const cands = a.ambiguous && (a.candidates || []).length ? `<div class="sub">Equally defensible: ${a.candidates.map(c => esc(c.place)).join(" · ")}</div>` : "";
     body = `<span class="type ${a.type}">${TYPE_LABEL[a.type] || esc(a.type)}</span>
       <div class="place">${where}</div>${sub ? `<div class="sub">${sub}</div>` : ""}
-      ${a.invented_name ? `<div class="sub">In the book: ${esc(a.invented_name)}</div>` : ""}
+      ${a.type === "invented" && a.invented_name && a.invented_name !== a.world ? `<div class="sub">In the book: ${esc(a.invented_name)}</div>` : ""}
       ${a.type === "none" && a.author_basis ? `<div class="sub">Author's place, by ${esc({writing:"where they wrote it",career:"working life",citizenship:"citizenship",birthplace:"birthplace"}[a.author_basis] || a.author_basis)}</div>` : ""}
       <div class="chips"><span class="chip ${esc(a.known)}">${a.known === "well" ? "knows it" : a.known === "description" ? "from description" : "guessing"}</span>${m.precision ? `<span class="chip">${esc(m.precision)}</span>` : ""}${a.ambiguous ? `<span class="chip">ambiguous</span>` : ""}</div>
       ${cands}${jr}<p class="why">${esc(a.why || "")}</p>`;
@@ -353,8 +357,8 @@ $("#f-q").addEventListener("input", () => renderList());
 
 const PAGE_SQL = (from, to) => `select json_agg(x order by x.id) as j from (
   select b.id, b.pool, b.band, b.title as t, b.author as a, b.year as y, b.description as "desc",
-    coalesce((select json_object_agg(split_part(r.model, '-', 2), r.answer) from loc_test_results r where r.book_id = b.id and r.variant = case when b.id > 1000 then 'v2.1' else 'v2.0' end), '{}') as ans,
-    coalesce((select json_object_agg(split_part(r.model, '-', 2), r.error) from loc_test_results r where r.book_id = b.id and r.variant = case when b.id > 1000 then 'v2.1' else 'v2.0' end and r.error is not null), '{}') as err
+    coalesce((select json_object_agg(split_part(r.model, '-', 2), r.answer) from loc_test_results r where r.book_id = b.id and r.variant = case when b.id > 1000 then 'v2.2' else 'v2.0' end), '{}') as ans,
+    coalesce((select json_object_agg(split_part(r.model, '-', 2), r.error) from loc_test_results r where r.book_id = b.id and r.variant = case when b.id > 1000 then 'v2.2' else 'v2.0' end and r.error is not null), '{}') as err
   from loc_test_books b where b.id between ${from} and ${to}) x;`;
 
 async function start(){
