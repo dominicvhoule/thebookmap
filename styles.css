@@ -407,3 +407,7 @@ a{color:var(--pin);text-underline-offset:2px}
 .gmenu li[aria-selected="true"]{background:var(--spine);color:var(--spine-ink)}
 .gmenu li[aria-selected="true"] span{color:var(--gold-soft)}
 @media (max-width:860px){.gmenu{max-height:250px}}
+
+.howvid{margin:14px 0 4px}
+.howvid video{display:block;width:100%;aspect-ratio:1280/804;background:var(--line);border:1px solid var(--line)}
+.howvid figcaption{font-size:13px;line-height:1.45;color:var(--muted);margin-top:6px}

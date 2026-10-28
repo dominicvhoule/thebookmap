@@ -1470,6 +1470,10 @@ function renderImport(){
   const missing = rep ? rep.missed.filter(m=>!onMyMap(m)) : [];
   el.innerHTML = `<h2 class="h">Goodreads</h2>
     <p class="hint">Bring in every book you've read on Goodreads, with your ratings and dates read. Goodreads exports your whole library as one file, with no limit on how many books, and it works whether your profile is public or private.</p>
+    <figure class="howvid">
+      <video src="media/goodreads-export.mp4" poster="media/goodreads-export.jpg" controls muted playsinline preload="none" aria-label="Screen recording: on Goodreads, open My Books, then Import and export, press Export Library, then download the file"></video>
+      <figcaption>On Goodreads: <b>My Books</b> → <b>Import and export</b> (left, under Tools) → <b>Export Library</b>. When the link to your file appears under the button, click it to download.</figcaption>
+    </figure>
     <ol class="howto">
       <li><a href="https://www.goodreads.com/review/import" target="_blank" rel="noopener">Export your library ↗</a><span>on Goodreads, then Export Library</span></li>
       <li><b>Save the CSV file</b><span>goodreads_library_export.csv</span></li>
