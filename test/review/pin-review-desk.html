@@ -353,8 +353,8 @@ $("#f-q").addEventListener("input", () => renderList());
 
 const PAGE_SQL = (from, to) => `select json_agg(x order by x.id) as j from (
   select b.id, b.pool, b.band, b.title as t, b.author as a, b.year as y, b.description as "desc",
-    coalesce((select json_object_agg(split_part(r.model, '-', 2), r.answer) from loc_test_results r where r.book_id = b.id and r.variant = 'v2.0'), '{}') as ans,
-    coalesce((select json_object_agg(split_part(r.model, '-', 2), r.error) from loc_test_results r where r.book_id = b.id and r.variant = 'v2.0' and r.error is not null), '{}') as err
+    coalesce((select json_object_agg(split_part(r.model, '-', 2), r.answer) from loc_test_results r where r.book_id = b.id and r.variant = case when b.id > 1000 then 'v2.1' else 'v2.0' end), '{}') as ans,
+    coalesce((select json_object_agg(split_part(r.model, '-', 2), r.error) from loc_test_results r where r.book_id = b.id and r.variant = case when b.id > 1000 then 'v2.1' else 'v2.0' end and r.error is not null), '{}') as err
   from loc_test_books b where b.id between ${from} and ${to}) x;`;
 
 async function start(){
