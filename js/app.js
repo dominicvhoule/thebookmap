@@ -246,12 +246,6 @@ async function reloadMine(){ try{ myBooks = await Store.load(); }catch(e){ myBoo
 const myKeys = () => new Set(myBooks.map(MM.bookKey));
 const onMyMap = m => myKeys().has(MM.bookKey(m)) || (!!m.ol && myBooks.some(b=>b.ol === m.ol)) || (!!m.gr && myBooks.some(b=>b.gr === m.gr));
 
-// The printable poster.
-const POSTERS = true;
-// Printed posters are sold through a print-on-demand partner. Until checkout is set up, "Order a print"
-// collects interest instead of taking payment.
-const ORDER_URL = "";
-
 /* ================= map ================= */
 // A real street map (MapLibre + OpenFreeMap tiles, free and keyless) that behaves like Google Maps
 // (place names and detail appear as you zoom, pins merge into counts and split apart) but is drawn in
@@ -860,7 +854,7 @@ async function renderCTA(){
   ov.hidden = true; cta.innerHTML = "";
   const o = viewing.owner || {};
   if(viewing.mine){
-    cta.innerHTML = `<a class="btn gold" href="#/log">Log a book</a><a class="btn ghost" href="#/import">Goodreads</a>${POSTERS ? `<a class="btn ghost" href="#/poster">Poster</a>` : ""}${me ? `<button class="btn ghost" id="share">Share</button>` : ""}`;
+    cta.innerHTML = `<a class="btn gold" href="#/log">Log a book</a><a class="btn ghost" href="#/import">Goodreads</a>${me ? `<button class="btn ghost" id="share">Share</button>` : ""}`;
     const sh = $("#share"); if(sh) sh.onclick = ()=>shareLink(profileURL(me.username), "My map on TheBookMap");
     if(me && !booksReady && sb){ ov.hidden = false; ov.innerHTML = "Your books are saved in this browser for now, while TheBookMap's accounts are being set up."; }
     return;
@@ -890,7 +884,6 @@ async function renderCTA(){
     };
     cta.prepend(b);
   }
-  if(POSTERS && viewing.films.length){ const a = document.createElement("a"); a.className = "btn ghost"; a.href = "#/poster"; a.textContent = "Poster"; cta.append(a); }
 }
 function renderAll(){ setOwnerHeader(); renderGenres(); renderPins(); renderList(); renderCTA(); renderCountryList(); }
 
@@ -1075,7 +1068,7 @@ async function renderStats(){
 
 /* ================= rail views ================= */
 function showPanel(id){
-  ["map","welcome","explore","log","import","account","poster","country"].forEach(v=>$("#view-"+v).hidden = v !== id);
+  ["map","welcome","explore","log","import","account","country"].forEach(v=>$("#view-"+v).hidden = v !== id);
 }
 function setNav(name){ document.querySelectorAll(".nav a, .acct").forEach(a=>a.setAttribute("aria-current", a.dataset.nav === name ? "page" : "false")); }
 function paintAccountLink(){ $("#acct-link").textContent = me ? "@" + me.username : (sb ? "Sign in" : "Account"); }
@@ -1496,66 +1489,6 @@ function renderImport(){
   if(csv) csv.onchange = ()=>{ if(csv.files.length) importGoodreadsExport(csv.files[0], $("#grcs"), cl); };
 }
 
-/* ---------- poster ---------- */
-let posterOpts = Object.assign({theme:MM.POSTER_DEFAULT, size:"24x18"}, MM.lsGet("bm-poster-v2", {}));
-if(!MM.POSTER_THEMES[posterOpts.theme]) posterOpts.theme = MM.POSTER_DEFAULT;
-if(!MM.POSTER_SIZES[posterOpts.size]) posterOpts.size = "24x18";
-let posterCanvas = null, posterURL = null, posterSeq = 0;
-function posterTitle(){
-  const o = viewing.owner || {};
-  const name = viewing.mine ? (me ? (me.display_name || me.username) : "My") : (o.display_name || o.name || o.username || "My");
-  return name === "My" ? "My map" : `${name}'s map`;
-}
-function posterSubtitle(){
-  const films = viewing.films, n = films.length;
-  const ctry = new Set(films.map(f=>MM.geoName(f.c)).filter(Boolean)).size, cont = new Set(films.map(contOf).filter(Boolean)).size;
-  return [`${n} book${n===1?"":"s"}`, `${ctry} countr${ctry===1?"y":"ies"}`, cont ? `${cont} continent${cont===1?"":"s"}` : ""].filter(Boolean).join("  ·  ");
-}
-function renderPoster(){
-  const el = $("#poster");
-  if(!viewing.films.length){ el.innerHTML = `<h2 class="h">Poster</h2><p class="hint">There are no books on this map yet. Log a few first, then come back for a poster.</p>`; return; }
-  const seg = (name, items) => `<div class="seg" role="group" aria-label="${name}">${items}</div>`;
-  el.innerHTML = `<h2 class="h">Poster</h2>
-    <p class="hint">${esc(posterTitle())}, ready to print, landscape. One pin per country, a list by country, and your stats.</p>
-    ${viewing.mine ? "" : `<p class="hint" style="margin:0">This is a sample made from ${esc(viewing.owner && viewing.owner.name || "the starter")}'s map. <a href="#/log">Log books</a> or <a href="#/import">import from Goodreads</a> and this page will make a poster of yours.</p>`}
-    <div class="pv busy" id="pv">Drawing your poster…</div>
-    <div class="opts">
-      <div class="field">Style${seg("Style", Object.entries(MM.POSTER_THEMES).map(([k,t])=>`<button type="button" data-theme="${k}" aria-pressed="${posterOpts.theme===k}"><i style="background:${t.bg};box-shadow:inset -8px 0 0 ${t.pin}"></i>${t.label}</button>`).join(""))}</div>
-      <label class="field" for="ps">Size<select id="ps">${Object.entries(MM.POSTER_SIZES).map(([k,s])=>`<option value="${k}" ${posterOpts.size===k?"selected":""}>${s.label}</option>`).join("")}</select></label>
-      <div class="order">
-        <b class="sub" style="font-size:15px">Order a print</b>
-        <p class="hint" style="margin:0">Printed on heavyweight matte paper and shipped to your door. Unframed or framed.</p>
-        <div class="cta"><button class="btn" id="order">${ORDER_URL ? "Order this print" : "Order a print"}</button></div>
-        <p class="hint" id="ordermsg" style="margin:0"></p>
-      </div>
-    </div>`;
-  el.querySelectorAll("[data-theme]").forEach(b=>b.onclick = ()=>{ posterOpts.theme = b.dataset.theme; el.querySelectorAll("[data-theme]").forEach(x=>x.setAttribute("aria-pressed", String(x===b))); drawPoster(); });
-  $("#ps").onchange = e=>{ posterOpts.size = e.target.value; drawPoster(); };
-  $("#order").onclick = ()=>{
-    if(ORDER_URL){ location.href = ORDER_URL; return; }
-    $("#ordermsg").textContent = "Printed posters are coming soon. We'll let you know when you can order yours.";
-    MM.lsSet("bm-poster-interest", {at:Date.now(), size:posterOpts.size, theme:posterOpts.theme});
-  };
-  drawPoster();
-}
-async function drawPoster(){
-  const seq = ++posterSeq;
-  MM.lsSet("bm-poster-v2", posterOpts);
-  await MM.posterFontsReady();
-  if(seq !== posterSeq) return;
-  posterCanvas = MM.renderPoster({
-    title: posterTitle(), films: viewing.films, countries, contOf, displayName: MM.displayCountry,
-    theme: posterOpts.theme, size: posterOpts.size, geoName: MM.geoName
-  });
-  const blob = await new Promise(r=>posterCanvas.toBlob(r, "image/jpeg", 0.85));
-  if(seq !== posterSeq || !blob) return;
-  if(posterURL) URL.revokeObjectURL(posterURL);
-  posterURL = URL.createObjectURL(blob);
-  const pv = $("#pv"); if(!pv) return;
-  pv.classList.remove("busy");
-  pv.innerHTML = `<img src="${posterURL}" alt="Poster preview of ${esc(posterTitle())}">`;
-}
-
 /* ---------- people ---------- */
 const starterCard = () => `<a class="ucard" href="#/u/${FEATURED.username}"><span class="avatar" style="background:${MM.avatarColor(FEATURED.username)}">${FEATURED.name[0]}</span><span style="min-width:0"><b>${esc(FEATURED.name)}</b><span class="m">Starter shelf · hand-checked settings</span></span><em><b>${FEATURED.books.length}</b><br>books</em></a>`;
 async function renderExplore(){
@@ -1741,8 +1674,7 @@ async function route(){
   if(a === "explore"){ setNav("explore"); showBackdrop(); showPanel("explore"); return renderExplore(); }
   if(a === "log"){ setNav("log"); showBackdrop(); showPanel("log"); return renderLog(); }
   if(a === "import"){ setNav("import"); showBackdrop(); showPanel("import"); return renderImport(); }
-  if(a === "poster" && !POSTERS){ location.replace("#/"); return; }
-  if(a === "poster"){ setNav("poster"); showPanel("poster"); showFeaturedOrMine(); return renderPoster(); }   // always your own map (or Emily's before you have one)
+  if(a === "poster"){ location.replace("#/"); return; }   // posters were dropped (2026-10-27); old links go home
   if(a === "account"){ if(b === "up" || b === "in") acctTab = b; setNav("account"); showBackdrop(); showPanel("account"); return renderAccount(); }
   setNav("home");
   if(!me && !myBooks.length) return showWelcome();

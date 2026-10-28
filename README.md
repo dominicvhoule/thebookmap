@@ -11,7 +11,6 @@ Live at **https://dominicvhoule.github.io/thebookmap/**
 - **Goodreads**: import the library export (`goodreads_library_export.csv`) on the Goodreads tab. It brings in every book with ratings, dates read and read counts, plus the Want to read and Currently reading shelves, with no limit on size and whether the profile is public or private. Importing a newer export later adds only the new books.
 - **Map, List, Stats**: switch the map to List (countries A to Z, with search) or Stats (share of books by country, continent and decade, best-rated countries, and how many are by a writer from the country they're set in). Opening a country splits its books into ones by writers from there and ones by writers from elsewhere.
 - **People**: one account for BookMap and MovieMap. Search members, follow them, view their maps, find friends from your phone's contacts (Android Chrome), or share an invite link.
-- **Poster**: a print-ready poster of any map.
 
 ## Where the data comes from
 
@@ -49,7 +48,6 @@ config.js           Supabase settings (MovieMap's project)
 js/featured.js      the hand-checked starter shelf (245 books), shown to signed-out visitors
 js/data.js          Open Library and Wikidata lookups, country helpers
 js/wikiplot.js      settings from the catalogue's subject places and from Wikipedia
-js/poster.js        printable poster
 js/app.js           map, reading log, logging, Goodreads, accounts, people
 data/world.json     country shapes (Natural Earth via world-atlas)
 supabase/migrations/101_bookmap.sql       the book tables and the nightly schedule
