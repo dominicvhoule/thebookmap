@@ -104,6 +104,8 @@ if(sb){
   };
   MM.aiSetting = null;   // switched on after sign-in, once the function answers
   MM.summaryServer = body => sb.functions.invoke("book-summary", {body}).then(({data, error})=>{ if(error) throw error; return data; });
+  // "More like this" (similar-books function): the reader's own books are left out on the server too.
+  MM.similarServer = book => sb.functions.invoke("similar-books", {body:{book, exclude:myBooks.slice(0, 3000).map(MM.bookKey), n:12}}).then(({data, error})=>{ if(error) throw error; return data; });
   MM.saveRemoteSettings = async map => {
     if(!session || !booksReady) return;
     const rows = Object.keys(map).map(k=>{ const s = map[k]; return {book_key:k, place:s.p ? String(s.p).slice(0, 200) : null, country:s.c || null, continent:s.cont||null, lat:s.lat, lon:s.lon, approx:!!s.ap, note:s.n ? String(s.n).slice(0, 500) : null, source:s.src}; });
@@ -744,7 +746,10 @@ async function openPreview(m, from){
   // Everything is looked up at once, and the card waits at most about 4 seconds. If where it's set is
   // still being worked out (it can take longer for a book nobody has added), the card opens anyway and
   // the place fills in when it arrives.
-  const setP = MM.resolveSettings([m]).catch(()=>null);
+  // Suggestions from "More like this" may already carry their v2 place (or invented world); use it as is.
+  const known = isFinite(m.lat) && isFinite(m.lon) ? [{p:m.p, c:m.c || "", lat:m.lat, lon:m.lon, ap:m.ap ? 1 : 0, n:m.n || "", src:"v2"}]
+    : (m.w && !isFinite(m.lat) ? [{p:MM.worldName ? MM.worldName(m.w) : m.w, c:"", n:m.n || "", w:m.w, src:"v2"}] : null);
+  const setP = known ? Promise.resolve(known) : MM.resolveSettings([m]).catch(()=>null);
   const [det0, settings, parts] = await Promise.all([timeout(MM.bookDetails(m).catch(()=>m), 4000), timeout(setP, 4000), cardParts(m, 4000)]);
   if(token !== openToken) return;
   const det = det0 || m;

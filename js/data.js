@@ -408,7 +408,23 @@ async function placeBooks(q){
   }
   return list;
 }
+// "More like this": books closest in meaning (embeddings of what each book is about, made and searched on the
+// server by the similar-books function), nudged towards the same place or invented world, leaving out the same
+// writer and books the reader already has. If the server has nothing for this book yet, the older catalogue
+// search below runs instead (same place, then same country, then same author).
+MM.similarServer = null;   // set by app.js: (book) => Promise<{list}>
 MM.similarFrom = async function(f, exclude){
+  if(MM.similarServer){
+    try{
+      const r = await MM.similarServer({t:f.t, a:f.a || "", y:+f.y || null, ol:f.ol || "", coverId:f.coverId || null, p:f.p || "", c:f.c || "", w:f.w || "", lat:isFinite(f.lat) ? f.lat : null});
+      const mine = MM.bookKey(f);
+      const list = (r && r.list || []).filter(m=>m && m.t && m.coverId && m.key !== mine && !(exclude && exclude(m))).slice(0, 8);
+      if(list.length >= 3) return {list, heading:"More like this"};
+    }catch(e){}
+  }
+  return similarByCatalogue(f, exclude);
+};
+async function similarByCatalogue(f, exclude){
   const self = f.ol, seen = new Set();
   // Other books by the same writer (and translations of this one) only show under "More by".
   const pick = (list, byAuthor) => list.filter(m=>m.ol !== self && !seen.has(m.ol) && !(exclude && exclude(m)) && (byAuthor || MM.norm(firstAuthor(m.a)) !== MM.norm(firstAuthor(f.a || "")))).slice(0, 8);
@@ -424,7 +440,7 @@ MM.similarFrom = async function(f, exclude){
     if(list.length >= 3) return {list, heading};
   }
   return {list:[], heading:""};
-};
+}
 
 // Continent of a country (by its ISO code), for pins whose source didn't say.
 const CONT_CODES = {"Europe":"AD AL AT AX BA BE BG BY CH CZ DE DK EE ES FI FO FR GB GG GI GR HR HU IE IM IS IT JE LI LT LU LV MC MD ME MK MT NL NO PL PT RO RS RU SE SI SJ SK SM UA XK VA",
