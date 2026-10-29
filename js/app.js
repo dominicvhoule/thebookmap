@@ -617,24 +617,41 @@ let openToken = 0;
 const timeout = (p, ms) => Promise.race([p, new Promise(r=>setTimeout(()=>r(null), ms))]);
 // Resolves with the URL once the image has fully downloaded (null if it fails), so a card can wait
 // for its cover and appear complete instead of showing the plain cloth cover first.
-// Covers for a scrolling grid or list: each one is found (saved ID, then the shared cache, then Open
-// Library once) as it scrolls into view, and swapped in only once it has fully loaded.
+// Covers for a scrolling grid or list. Books with a saved cover ID start loading as soon as they are
+// within a couple of screens (the first screenful straight away), and each cover is painted the moment
+// it arrives; books without one are looked up (shared cache, then Open Library once). Covers already
+// seen this visit appear instantly when a list is drawn again. Every cover is stored on the cover
+// server in advance (table cover_store), so these are fast fetches.
 let coverObservers = [];
+const coversSeen = new Set();
+function paintCover(el, url){ el.style.backgroundImage = `url("${url}")`; el.textContent = ""; el.classList.add("has"); }
 function lazyCovers(root, bookOf, size){
+  // Stop watching lists that have since been redrawn.
+  coverObservers = coverObservers.filter(o=>{ if(o.els.some(e=>e.isConnected)) return true; o.io.disconnect(); return false; });
   const els = [...root.querySelectorAll(".th")];
   const books = els.map(bookOf).filter(Boolean);
   const need = books.filter(b=>!b.coverId).map(MM.bookKey);
   const shared = need.length && MM.remoteMatches ? MM.remoteMatches(need).catch(()=>{}) : Promise.resolve();
-  const io = new IntersectionObserver(entries=>entries.forEach(async en=>{
+  const show = async el=>{
+    const b = bookOf(el); if(!b) return;
+    if(!b.coverId) await shared;
+    const url = b.coverId ? MM.coverURL(b, size) : await coverOf(b, size).catch(()=>null);
+    if(!url) return;
+    if(coversSeen.has(url)) return paintCover(el, url);
+    const im = new Image();
+    im.onload = ()=>{ if(im.naturalWidth > 10){ coversSeen.add(url); paintCover(el, url); } };
+    im.src = url;
+  };
+  const io = new IntersectionObserver(entries=>entries.forEach(en=>{
     if(!en.isIntersecting) return;
     io.unobserve(en.target);
-    const b = bookOf(en.target); if(!b) return;
-    await shared;
-    const url = await loadImg(await coverOf(b, size).catch(()=>null));
-    if(url){ en.target.style.backgroundImage = `url("${url}")`; en.target.textContent = ""; en.target.classList.add("has"); }
-  }), {rootMargin:"300px"});
-  els.forEach(el=>io.observe(el));
-  coverObservers.push(io);
+    show(en.target);
+  }), {rootMargin:"1200px 0px"});
+  els.forEach(el=>{
+    const b = bookOf(el), url = b && b.coverId && MM.coverURL(b, size);
+    if(url && coversSeen.has(url)) paintCover(el, url); else io.observe(el);
+  });
+  coverObservers.push({io, els});
   return io;
 }
 const loadImg = url => !url ? Promise.resolve(null) : new Promise(res=>{ const im = new Image(); im.onload = ()=>res(im.naturalWidth > 10 ? url : null); im.onerror = ()=>res(null); im.src = url; });
@@ -1051,9 +1068,12 @@ function renderCountryList(fresh){
   if(mapView === "stats") return renderStats();
 }
 // The list view: countries A to Z, with a search box.
+// It's kept between switches to Map and back: redrawn only when the books, the filter or the search change.
+let listSig = "";
 function renderList2(fresh){
   const el = $("#clist");
-  if(fresh || !el.querySelector("#csearch")){
+  const built = el.querySelector("#csearch") && el.querySelector("#cgroups");
+  if(!built){
     el.innerHTML = `<div class="clist-in"><div class="clist-top"><p class="k" id="ccount"></p>
       <input id="csearch" type="search" placeholder="Find a country" aria-label="Find a country" autocomplete="off" value="${esc(listQuery)}"></div><div id="cgroups"></div></div>`;
     $("#csearch").oninput = e=>{ listQuery = e.target.value; renderList2(false); };
@@ -1061,6 +1081,10 @@ function renderList2(fresh){
   const all = countryGroups(filtered()).sort((a,b)=>a.name.localeCompare(b.name));
   const q = MM.norm(listQuery);
   const groups = q ? all.filter(g=>MM.norm(g.name).includes(q)) : all;
+  const sig = q + "|" + groups.map(g=>g.name + ":" + g.films.map(f=>MM.bookKey(f) + (f.coverId || "")).join(",")).join(";")
+    + "|" + worldBooks().map(f=>MM.bookKey(f) + f.w).join(",");
+  if(built && sig === listSig) return;
+  listSig = sig;
   const total = all.reduce((n,g)=>n + g.films.length, 0);
   $("#ccount").textContent = `${all.length} countr${all.length===1?"y":"ies"} · ${total} book${total===1?"":"s"}`;
   const box = $("#cgroups");
