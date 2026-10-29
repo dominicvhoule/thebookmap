@@ -1,7 +1,7 @@
 // TheBookMap: "More like this", step 1 (content-based).
 // Each book gets an embedding of what it's about from Supabase's built-in gte-small model (no API cost), stored in
 // book_vectors; suggestions are the nearest books by meaning, nudged towards the same place / invented world
-// (similar_books_v in migration 113). Same writer and books the reader already has are left out.
+// (similar_books_v, migrations 115–117). Same writer and books the reader already has are left out.
 //
 // POST {book:{t,a,y,ol,coverId,p,c,w}, exclude:[book keys], n}  → {list:[{key,t,a,y,ol,coverId,p,c,w,lat,lon,ap,n}]}
 //   A book that isn't stored yet is added on the spot when Open Library confirms it (title, author and
