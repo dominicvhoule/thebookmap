@@ -1823,7 +1823,7 @@ function renderAccount(){
       <label class="field" for="p-name">Display name<input id="p-name" maxlength="40" value="${esc(p.display_name)}"></label>
       <label class="field" for="p-bio">Bio<textarea id="p-bio" maxlength="160" rows="2">${esc(p.bio)}</textarea></label>
       <div class="field">Goodreads<span style="font-weight:400;font-size:15px"><a href="#/import">Import your library on the Goodreads tab</a></span></div>
-      <div class="box">
+      <div class="box"${privacyReady ? "" : " hidden"}>
         <b class="sub" style="font-size:16px">Who can see my book map</b>
         <label class="check" for="p-priv"><input type="checkbox" id="p-priv" ${p.book_private ? "checked" : ""}> Keep my book map private</label>
         <p class="hint" style="margin:0">Public maps can be seen by anyone and appear in Community. A private map is seen only by you: it leaves Community and search, and your link shows "This map is private". Reviews you write stay on book cards, signed "A fellow reader".</p>
@@ -1848,7 +1848,7 @@ function renderAccount(){
     const {error} = await sb.from("profiles").update(patch).eq("id", me.id);
     if(error){ e.textContent = "Couldn't save. Try again."; e.hidden = false; return; }
     const priv = $("#p-priv").checked;
-    if(priv !== !!me.book_private){
+    if(privacyReady && priv !== !!me.book_private){
       const {error:pe} = await sb.from("book_prefs").upsert({user_id:me.id, private:priv, updated_at:new Date().toISOString()}, {onConflict:"user_id"});
       if(pe){ e.textContent = "Couldn't change who can see your map. Try again."; e.hidden = false; return; }
       me.book_private = priv;
@@ -1944,9 +1944,13 @@ async function loadMe(){
     const {data} = await sb.from("profiles").select("*").eq("id", session.user.id).maybeSingle();
     me = data || null; if(!me) await MM.sleep(600);
   }
-  if(me){ try{ const {data:pr} = await sb.from("book_prefs").select("private").eq("user_id", me.id).maybeSingle(); me.book_private = !!(pr && pr.private); }catch(e){ me.book_private = false; } }
+  if(me){
+    try{ const {data:pr, error} = await sb.from("book_prefs").select("private").eq("user_id", me.id).maybeSingle(); me.book_private = !!(pr && pr.private); privacyReady = !error; }
+    catch(e){ me.book_private = false; privacyReady = false; }
+  }
 }
 // Private book maps (book_prefs): only the owner can see them; enforced by the database.
+let privacyReady = false;   // false until the book_prefs table exists (migration 113); the switch stays hidden till then
 async function isPrivateMap(userId){
   try{ const {data} = await sb.from("book_prefs").select("private").eq("user_id", userId).maybeSingle(); return !!(data && data.private); }catch(e){ return false; }
 }
