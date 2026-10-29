@@ -787,10 +787,10 @@ async function fillCommunity(b, token, mine){
   try{ const {data, error} = await sb.rpc("book_community", {p_key:key, p_limit:50}); if(error) throw error; c = data; }catch(e){ return; }
   if(token !== openToken || !detail.contains(box) || !c) return;
   const reviews = c.reviews || [];
-  const myReview = me ? reviews.find(r=>r.username === me.username) : null;
+  const myReview = me ? reviews.find(r=>r.mine || (r.username && r.username === me.username)) : null;
   const others = reviews.filter(r=>r !== myReview);
   const n = c.ratings || 0, max = Math.max(1, ...(c.spread || [0]));
-  const reviewLi = r => `<li><div class="rv-h"><a href="#/u/${encodeURIComponent(r.username)}">${esc(r.name)}</a>${r.rating ? ` <span class="stars">${stars(r.rating)}</span>` : ""}<span class="rv-d">${esc(fmtWhen(r.at))}</span></div><p class="rv-b">${esc(r.body)}</p></li>`;
+  const reviewLi = r => `<li><div class="rv-h">${r.username ? `<a href="#/u/${encodeURIComponent(r.username)}">${esc(r.name)}</a>` : `<span class="rv-anon">${esc(r.name)}</span>`}${r.rating ? ` <span class="stars">${stars(r.rating)}</span>` : ""}<span class="rv-d">${esc(fmtWhen(r.at))}</span></div><p class="rv-b">${esc(r.body)}</p></li>`;
   const SHOW = 3;
   box.innerHTML = `<div class="comm">
     <b class="sub" style="font-size:15px">What readers think</b>
@@ -841,7 +841,7 @@ function setOwnerHeader(){
   $("#s-authors").textContent = authors.size;
   $("#s-ctry").textContent = ctry.size;
   $("#s-cont").textContent = cont.size;
-  $("#whose-k").textContent = viewing.mine ? (me ? "Your map" : "Saved in this browser") : o.featured ? "Starter shelf" : "Member's map";
+  $("#whose-k").textContent = viewing.mine ? (me ? (me.book_private ? "Your map · private" : "Your map") : "Saved in this browser") : o.featured ? "Starter shelf" : o.private ? "Private map" : "Member's map";
   $("#whose-h").textContent = viewing.mine ? (me ? (me.display_name || me.username) : "Your map") : name;
 }
 let listObserver = null;
@@ -1662,18 +1662,21 @@ const starterCard = () => `<a class="ucard" href="#/u/${FEATURED.username}"><spa
 async function renderExplore(){
   const el = $("#explore");
   if(!sb){
-    el.innerHTML = `<h2 class="h">People</h2><p class="hint">Accounts aren't switched on for this site yet, so there's one map to explore.</p><div class="list">${starterCard()}</div>`;
+    el.innerHTML = `<h2 class="h">Community</h2><p class="hint">Accounts aren't switched on for this site yet, so there's one map to explore.</p><div class="list">${starterCard()}</div>`;
     return;
   }
-  el.innerHTML = `<h2 class="h">People</h2>
-    <div class="search"><label for="pq" class="sr">Search people</label><input id="pq" type="search" autocomplete="off" placeholder="Search by username or name"></div>
+  el.innerHTML = `<h2 class="h">Community</h2>
+    <p class="hint" style="margin-top:-4px">See where other readers' books have taken them. Only public maps appear here.</p>
+    <div class="search"><label for="pq" class="sr">Search people</label><input id="pq" type="search" autocomplete="off" placeholder="Search readers by username or name"></div>
     <div class="list" id="pr"></div>
+    ${me ? `<h3 class="sub">From people you follow</h3><ul class="feed" id="feed"><li class="hint">Loading…</li></ul>` : ""}
+    <h3 class="sub">Maps to explore</h3><div class="maps" id="maps"><p class="hint">Loading…</p></div>
     ${me ? `<div class="cta"><button class="btn ghost small" id="invite">Invite friends</button>${("contacts" in navigator && "ContactsManager" in window) ? `<button class="btn ghost small" id="fromcontacts">Find friends in contacts</button>` : ""}</div><div id="cres"></div>
       <h3 class="sub">Following</h3><div class="list" id="following"><p class="hint">Loading…</p></div>
       <h3 class="sub">Followers</h3><div class="list" id="followers"><p class="hint">Loading…</p></div>
       <p class="hint" style="margin:0;font-size:12.5px">Follows are shared with TheMovieMap: follow someone on either site and it counts on both.</p>` : `<p class="notice"><a href="#/account">Sign in</a> to follow people and find friends from your contacts.</p>`}
-    <h3 class="sub">New on TheBookMap</h3><div class="list" id="newest"><p class="hint">Loading…</p></div>
-    <h3 class="sub">Starter shelf</h3><div class="list">${starterCard()}</div>`;
+    <h3 class="sub">New on TheBookMap</h3><div class="list" id="newest"><p class="hint">Loading…</p></div>`;
+  renderMapCards();
   let t; $("#pq").addEventListener("input", e=>{ clearTimeout(t); t = setTimeout(()=>searchPeople(e.target.value.trim()), 250); });
   const counts = booksReady ? ",book_logs(count)" : "";
   if(me){
@@ -1681,15 +1684,50 @@ async function renderExplore(){
     const fc = $("#fromcontacts"); if(fc) fc.onclick = findFromContacts;
     const {data} = await sb.from("follows").select(`followee:profiles!follows_followee_fkey(id,username,display_name${counts})`).eq("follower", me.id).limit(100);
     const flAll = (data||[]).map(r=>r.followee).filter(Boolean), fl = flAll.filter(hasBookMap), flRest = flAll.length - fl.length;
+    renderFeed(flAll.map(p=>p.id));
     $("#following").innerHTML = (fl.length ? fl.map(personCard).join("") : `<p class="hint">${flRest ? "None of the people you follow have a book map yet." : "You're not following anyone yet. Search above, or invite friends."}</p>`)
-      + (flRest ? `<p class="hint" style="margin:0;font-size:12.5px">${flRest} more ${flRest === 1 ? "person" : "people"} you follow ${flRest === 1 ? "hasn't" : "haven't"} started a book map yet. They'll show up here once they log a book.</p>` : "");
+      + (flRest ? `<p class="hint" style="margin:0;font-size:12.5px">${flRest} more ${flRest === 1 ? "person" : "people"} you follow ${flRest === 1 ? "hasn't" : "haven't"} started a book map yet, or keep${flRest === 1 ? "s" : ""} it private. They'll show up here once they log a book.</p>` : "");
     const {data:fr} = await sb.from("follows").select(`follower:profiles!follows_follower_fkey(id,username,display_name${counts})`).eq("followee", me.id).limit(100);
     const frAll = (fr||[]).map(r=>r.follower).filter(Boolean), frs = frAll.filter(hasBookMap), frRest = frAll.length - frs.length;
     const fe = $("#followers"); if(fe) fe.innerHTML = (frs.length ? frs.map(personCard).join("") : `<p class="hint">${frRest ? "None of your followers have a book map yet." : `No followers yet. Share your map with "Invite friends".`}</p>`)
-      + (frRest ? `<p class="hint" style="margin:0;font-size:12.5px">${frRest} more ${frRest === 1 ? "follower hasn't" : "followers haven't"} started a book map yet.</p>` : "");
+      + (frRest ? `<p class="hint" style="margin:0;font-size:12.5px">${frRest} more ${frRest === 1 ? "follower hasn't" : "followers haven't"} started a book map yet, or keep${frRest === 1 ? "s" : ""} it private.</p>` : "");
   }
   const {data:newest} = booksReady ? await sb.rpc("book_readers", {n:12}) : {data:[]};
   const nn = $("#newest"); if(nn) nn.innerHTML = (newest||[]).length ? newest.map(p=>personCard(Object.assign({}, p, {book_logs:[{count:p.books}]}))).join("") : `<p class="hint">Nobody yet. Be the first.</p>`;
+}
+// Community: the newest books from people you follow (public maps only; the database leaves private ones out).
+async function renderFeed(ids){
+  const box = $("#feed"); if(!box) return;
+  if(!ids.length){ box.innerHTML = `<li class="hint">Follow readers to see the books they add here.</li>`; return; }
+  const {data, error} = await sb.from("book_logs").select("title,author,place,country,cover_id,created_at,user_id,profiles(username,display_name)").in("user_id", ids.slice(0, 200)).order("created_at", {ascending:false}).limit(20);
+  if(error || !data || !data.length){ box.innerHTML = `<li class="hint">${error ? "Couldn't load this just now." : "Nothing new from people you follow yet."}</li>`; return; }
+  box.innerHTML = data.map(r=>{
+    const who = r.profiles || {}, name = who.display_name || who.username || "A reader";
+    const where = [r.place, r.country].filter((x,i,a)=>x && a.indexOf(x) === i).join(", ");
+    return `<li><a href="#/u/${encodeURIComponent(who.username || "")}"><span class="avatar" style="background:${MM.avatarColor(who.username || name)}">${esc(name[0] || "?")}</span><span style="min-width:0"><span class="fw"><b>${esc(name)}</b> added <i>${esc(r.title)}</i></span><span class="m">${esc([r.author, where].filter(Boolean).join(" · "))}</span></span><em>${esc(fmtWhen(r.created_at))}</em></a></li>`;
+  }).join("");
+}
+// A small world map with a dot for each pin, for map cards.
+let thumbLand = null;
+function mapThumb(pts){
+  const W = 168, H = 84;
+  const proj = d3.geoEqualEarth().fitSize([W, H], {type:"Sphere"});
+  if(thumbLand === null && countries.length){ const path = d3.geoPath(proj); thumbLand = countries.map(c=>path(c) || "").join(""); }
+  const dots = (pts || []).map(([lon, lat])=>{ const xy = proj([lon, lat]); return xy ? `<circle cx="${xy[0].toFixed(1)}" cy="${xy[1].toFixed(1)}" r="2.2"/>` : ""; }).join("");
+  return `<svg class="thumb" viewBox="0 0 ${W} ${H}" aria-hidden="true"><path d="${thumbLand || ""}" class="tl"/>${dots}</svg>`;
+}
+async function renderMapCards(){
+  const box = $("#maps"); if(!box) return;
+  let rows = [];
+  if(booksReady){ try{ const {data, error} = await sb.rpc("book_maps", {n:12}); if(!error) rows = data || []; }catch(e){} }
+  const card = (href, name, user, books, ctry, pts, tag) => `<a class="mcard" href="${href}">${mapThumb(pts)}<span class="mc-b"><b>${esc(name)}</b><span class="m">${tag ? esc(tag) + " · " : ""}${books} book${books===1?"":"s"} · ${ctry} countr${ctry===1?"y":"ies"}</span></span></a>`;
+  const starterPts = (FEATURED.books || []).filter(f=>isFinite(f.lat)).map(f=>[f.lon, f.lat]);
+  const starterCtry = new Set((FEATURED.books || []).map(f=>f.c).filter(Boolean)).size;
+  const html = rows.filter(r=>!me || r.id !== me.id).map(r=>card(`#/u/${encodeURIComponent(r.username)}`, r.display_name || r.username, r.username, +r.books, +r.countries, r.pts)).join("")
+    + card(`#/u/${FEATURED.username}`, FEATURED.name, FEATURED.username, FEATURED.books.length || FEATURED.count || 0, starterCtry, starterPts, "Starter shelf");
+  box.innerHTML = html;
+  // Emily's books load on demand; redraw her card once they're in.
+  if(!starterPts.length && typeof placeFeatured === "function") placeFeatured().then(()=>{ if($("#maps") === box) renderMapCards(); }).catch(()=>{});
 }
 // Accounts and follows are shared with TheMovieMap (same Supabase project). Here we list only people who
 // have a book map, i.e. at least one book logged; follows made on either site count on both.
@@ -1786,6 +1824,11 @@ function renderAccount(){
       <label class="field" for="p-bio">Bio<textarea id="p-bio" maxlength="160" rows="2">${esc(p.bio)}</textarea></label>
       <div class="field">Goodreads<span style="font-weight:400;font-size:15px"><a href="#/import">Import your library on the Goodreads tab</a></span></div>
       <div class="box">
+        <b class="sub" style="font-size:16px">Who can see my book map</b>
+        <label class="check" for="p-priv"><input type="checkbox" id="p-priv" ${p.book_private ? "checked" : ""}> Keep my book map private</label>
+        <p class="hint" style="margin:0">Public maps can be seen by anyone and appear in Community. A private map is seen only by you: it leaves Community and search, and your link shows "This map is private". Reviews you write stay on book cards, signed "A fellow reader".</p>
+      </div>
+      <div class="box">
         <b class="sub" style="font-size:16px">Find friends from contacts</b>
         <label class="check" for="p-disc"><input type="checkbox" id="p-disc" ${p.discoverable ? "checked" : ""}> Let friends who have my email or phone number find me</label>
         <label class="field" for="p-phone">Phone number (optional)<input id="p-phone" type="tel" autocomplete="tel" placeholder="${p.discoverable ? "Saved privately. Type to replace" : "Only used for matching"}"></label>
@@ -1804,6 +1847,13 @@ function renderAccount(){
     const patch = {display_name:$("#p-name").value.trim(), bio:$("#p-bio").value.trim(), discoverable: disc};
     const {error} = await sb.from("profiles").update(patch).eq("id", me.id);
     if(error){ e.textContent = "Couldn't save. Try again."; e.hidden = false; return; }
+    const priv = $("#p-priv").checked;
+    if(priv !== !!me.book_private){
+      const {error:pe} = await sb.from("book_prefs").upsert({user_id:me.id, private:priv, updated_at:new Date().toISOString()}, {onConflict:"user_id"});
+      if(pe){ e.textContent = "Couldn't change who can see your map. Try again."; e.hidden = false; return; }
+      me.book_private = priv;
+      if(viewing.mine) setOwnerHeader();
+    }
     try{
       const phone = normPhone($("#p-phone").value);
       if(!disc){ await sb.from("contact_keys").delete().eq("user_id", me.id); }
@@ -1834,7 +1884,10 @@ async function route(){
     if(name === FEATURED.username) return showFeatured();
     if(sb){
       const {data:p} = await sb.from("profiles").select("*").eq("username", name).maybeSingle();
-      if(p){ const films = booksReady ? await fetchLogs(p.id).catch(()=>[]) : []; return showMap(p, films, false); }
+      if(p){
+        if(booksReady && await isPrivateMap(p.id)) return showMap(Object.assign({}, p, {private:true, bio:"This map is private."}), [], false);
+        const films = booksReady ? await fetchLogs(p.id).catch(()=>[]) : []; return showMap(p, films, false);
+      }
     }
     showMap({name:"Not found", username:name, bio:"No one has this username."}, [], false);
     return;
@@ -1891,6 +1944,11 @@ async function loadMe(){
     const {data} = await sb.from("profiles").select("*").eq("id", session.user.id).maybeSingle();
     me = data || null; if(!me) await MM.sleep(600);
   }
+  if(me){ try{ const {data:pr} = await sb.from("book_prefs").select("private").eq("user_id", me.id).maybeSingle(); me.book_private = !!(pr && pr.private); }catch(e){ me.book_private = false; } }
+}
+// Private book maps (book_prefs): only the owner can see them; enforced by the database.
+async function isPrivateMap(userId){
+  try{ const {data} = await sb.from("book_prefs").select("private").eq("user_id", userId).maybeSingle(); return !!(data && data.private); }catch(e){ return false; }
 }
 // Is the book table there yet? (supabase/migrations/101_bookmap.sql)
 async function checkBooksTable(){
