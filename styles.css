@@ -455,3 +455,34 @@ a{color:var(--pin);text-underline-offset:2px}
 .whead h3{margin:4px 0 2px;font-family:var(--f-display);font-style:italic;font-weight:700;font-size:26px;line-height:1.1}
 .whead p{margin:0;color:var(--muted);font-size:14px}
 .whead .x{position:absolute;top:12px;right:12px}
+
+/* Other worlds: each world's land a little like the world (terrain tints follow dark mode). */
+:root{--w-desert:#EAD6A6;--w-forest:#D6E0C3;--w-ice:#EEF2F1;--w-mountains:#E2D9C8;--w-storm:#DCD8CF;--w-red:#E6C3AA;--w-dream:#E6D9EA;--w-rock:#E2DED6;--w-tree:#9FB48A;--w-mark:#9C9178}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--w-desert:#5E5232;--w-forest:#3A4A33;--w-ice:#4A5552;--w-mountains:#4F4A3E;--w-storm:#474641;--w-red:#5E4235;--w-dream:#4D4255;--w-rock:#4A4740;--w-tree:#6E865C;--w-mark:#A89C80}}
+:root[data-theme="dark"]{--w-desert:#5E5232;--w-forest:#3A4A33;--w-ice:#4A5552;--w-mountains:#4F4A3E;--w-storm:#474641;--w-red:#5E4235;--w-dream:#4D4255;--w-rock:#4A4740;--w-tree:#6E865C;--w-mark:#A89C80}
+.worlds .land.t-desert{fill:var(--w-desert)}.worlds .land.t-forest{fill:var(--w-forest)}.worlds .land.t-ice{fill:var(--w-ice)}
+.worlds .land.t-mountains{fill:var(--w-mountains)}.worlds .land.t-storm{fill:var(--w-storm)}.worlds .land.t-red{fill:var(--w-red)}
+.worlds .land.t-dream{fill:var(--w-dream)}.worlds .land.t-rock{fill:var(--w-rock)}
+.worlds .land:hover,.worlds .land.on{fill:var(--gold-soft);stroke:var(--m-ink)}
+.worlds .wm,.worlds .wd,.worlds .wi,.worlds .wgrid{fill:none;stroke:var(--w-mark);stroke-width:1.2;vector-effect:non-scaling-stroke;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}
+.worlds .wgrid{stroke-width:.8;opacity:.7}
+.worlds .wt{fill:var(--w-tree);pointer-events:none}
+.worlds .wrim{fill:none;stroke:var(--m-border);stroke-width:1;stroke-dasharray:3 3;vector-effect:non-scaling-stroke;pointer-events:none}
+.worlds .whub{fill:var(--w-mark);pointer-events:none}
+.worlds .wshade{fill:#000;opacity:.07;pointer-events:none}
+.worlds .wcrater{fill:none;stroke:var(--w-mark);stroke-width:1;vector-effect:non-scaling-stroke;pointer-events:none}
+.worlds .wworld.dim,.worlds .gpin.wp.dim,.worlds .wlabel.dim{opacity:.25;transition:opacity .15s}
+.worlds .wworld.hit .land{stroke:var(--m-ink);stroke-width:1.6}
+.wdesc{margin:0;padding:6px 20px 0;font-size:14.5px;line-height:1.5;color:var(--ink)}
+/* Search on the Other worlds map. */
+.wsearch{position:absolute;z-index:4;right:16px;top:68px;width:min(330px,calc(100% - 32px))}
+.wsearch[hidden]{display:none}
+.wsearch input{width:100%;height:38px;padding:0 12px;border:1px solid var(--line);background:var(--card);color:var(--ink);font:inherit;font-size:14px;box-shadow:0 1px 3px rgb(0 0 0/.08)}
+.wsearch input:focus{outline:2px solid var(--gold);outline-offset:-1px}
+.wres{list-style:none;margin:4px 0 0;padding:4px 0;background:var(--card);border:1px solid var(--line);max-height:min(50vh,360px);overflow:auto;box-shadow:0 8px 24px rgb(0 0 0/.12)}
+.wres button{display:grid;gap:2px;width:100%;text-align:left;border:0;background:none;padding:8px 12px;cursor:pointer;color:var(--ink);font:inherit}
+.wres button b{font-weight:600;font-size:14px}
+.wres button span{font-size:12.5px;color:var(--muted)}
+.wres button:hover,.wres button:focus{background:var(--paper);outline:none}
+.wres .none{padding:10px 12px;font-size:13.5px;color:var(--muted)}
+@media (max-width:860px){.wsearch{left:10px;right:10px;width:auto}}

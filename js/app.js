@@ -1016,7 +1016,7 @@ async function openCountry(geo){
 }
 
 /* ---------- Other worlds: the fantasy map (js/worlds.js) ---------- */
-let worldView = false, worldSel = "";
+let worldView = false, worldSel = "", worldQuery = "", worldFocus = "";
 function worldBooks(){ return filtered().filter(MM.inOtherWorld); }
 function paintWorldTog(){
   const t = $(".worldtog"); if(!t) return;
@@ -1030,26 +1030,76 @@ function setWorld(on){
   worldView = !!on;
   $(".mapwrap").classList.toggle("worldview", worldView);
   $("#worlds").hidden = !worldView;
-  if(!worldView){ worldSel = ""; if(map) map.resize(); }
+  $("#wsearch").hidden = !worldView;
+  if(!worldView){ worldSel = ""; worldQuery = ""; worldFocus = ""; $("#wq").value = ""; $("#wres").hidden = true; if(map) map.resize(); }
   paintWorldTog(); renderWorlds();
 }
 function renderWorlds(){
   paintWorldTog();
   if(!worldView) return;
-  MM.renderWorlds($("#worlds"), worldBooks(), {selected, world:worldSel, icon:ICON,
+  const bar = $(".mapbar"), wrap = $(".mapwrap");
+  if(bar && wrap) $("#wsearch").style.top = Math.round(bar.getBoundingClientRect().bottom - wrap.getBoundingClientRect().top + 8) + "px";
+  MM.renderWorlds($("#worlds"), worldBooks(), {selected, world:worldSel, icon:ICON, query:worldQuery, focus:worldFocus,
     onBook: f=>openBook(f, false),
     onWorld: w=>openWorld(w)});
 }
 // Tapping an island lists that world's books in the card.
 function openWorld(w){
   worldSel = w.name; selected = null; openToken++;
+  const prof = MM.worldProfile(w.name, w.books);
   detail.innerHTML = `<div class="whead"><small>Other worlds</small><h3>${esc(w.name)}</h3><p>${w.books.length} book${w.books.length===1?"":"s"}</p><button class="x" aria-label="Close">×</button></div>
+    ${prof.desc ? `<p class="wdesc">${esc(prof.desc)}</p>` : ""}
     <div class="body"><ul class="wlist">${w.books.map((f,i)=>`<li><button type="button" data-i="${i}"><b>${esc(f.t)}</b><span>${esc(f.a)}${f.p && f.p !== w.name ? " · " + esc(f.p) : ""}</span></button></li>`).join("")}</ul></div>`;
   detail.hidden = false;
   detail.querySelector(".x").onclick = ()=>{ worldSel = ""; closeDetail(); };
   detail.querySelectorAll(".wlist button").forEach(b=>b.onclick = ()=>openBook(w.books[+b.dataset.i], false));
   renderWorlds();
 }
+// Search on the Other worlds map: worlds, places within them, book titles and authors. Results list under the
+// box; the map fades whatever doesn't match while you type.
+function worldSearchResults(q){
+  const fold = x => String(x || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  q = fold(q).trim(); if(!q) return [];
+  const books = worldBooks(), byW = new Map();
+  books.forEach(f=>{ const n = MM.worldName(f.w); if(!byW.has(n)) byW.set(n, []); byW.get(n).push(f); });
+  const out = [], places = new Set();
+  byW.forEach((list, name)=>{
+    const prof = MM.worldProfile(name, list);
+    if(fold(name).includes(q) || fold(prof.desc).includes(q)) out.push({kind:"world", name, list, label:name, sub:`World · ${list.length} book${list.length===1?"":"s"}`});
+  });
+  books.forEach(f=>{ const n = MM.worldName(f.w); if(f.p && fold(f.p).includes(q) && !places.has(n + "|" + f.p)){ places.add(n + "|" + f.p); out.push({kind:"place", name:n, list:byW.get(n).filter(x=>x.p === f.p), label:f.p, sub:`Place in ${n}`}); } });
+  books.forEach(f=>{ if(fold(f.t).includes(q) || fold(f.a).includes(q)) out.push({kind:"book", name:MM.worldName(f.w), f, label:f.t, sub:`${f.a || ""} · ${MM.worldName(f.w)}`}); });
+  return out.slice(0, 12);
+}
+function paintWorldResults(){
+  const ul = $("#wres"), res = worldSearchResults(worldQuery);
+  if(!worldQuery.trim()){ ul.hidden = true; ul.innerHTML = ""; return; }
+  ul.hidden = false;
+  ul.innerHTML = res.length ? res.map((r,i)=>`<li><button type="button" data-i="${i}"><b>${esc(r.label)}</b><span>${esc(r.sub)}</span></button></li>`).join("")
+    : `<li class="none">Nothing in other worlds matches “${esc(worldQuery.trim())}”.</li>`;
+  ul.querySelectorAll("button").forEach(b=>b.onclick = ()=>{
+    const r = res[+b.dataset.i];
+    ul.hidden = true; worldFocus = r.name;
+    if(r.kind === "book" || (r.kind === "place" && r.list.length === 1)) openBook(r.f || r.list[0], false);
+    else { const books = worldBooks().filter(f=>MM.worldName(f.w) === r.name); openWorld({name:r.name, books}); }
+  });
+}
+(function(){
+  const q = $("#wq"); if(!q) return;
+  q.oninput = ()=>{ worldQuery = q.value; worldFocus = ""; paintWorldResults(); renderWorlds(); };
+  q.onkeydown = e=>{
+    if(e.key === "Escape"){ q.value = ""; worldQuery = ""; paintWorldResults(); renderWorlds(); }
+    if(e.key === "Enter"){ const b = $("#wres button"); if(b){ e.preventDefault(); b.click(); } }
+    if(e.key === "ArrowDown"){ const b = $("#wres button"); if(b){ e.preventDefault(); b.focus(); } }
+  };
+  $("#wres").onkeydown = e=>{
+    const items = [...document.querySelectorAll("#wres button")], i = items.indexOf(document.activeElement);
+    if(e.key === "ArrowDown" && i >= 0){ e.preventDefault(); (items[i + 1] || items[i]).focus(); }
+    if(e.key === "ArrowUp" && i >= 0){ e.preventDefault(); (items[i - 1] || q).focus(); }
+    if(e.key === "Escape"){ q.focus(); $("#wres").hidden = true; }
+  };
+  q.onfocus = ()=>{ if(worldQuery.trim()) paintWorldResults(); };
+})();
 window.addEventListener("resize", ()=>{ if(worldView) renderWorlds(); });
 document.querySelectorAll(".worldtog button").forEach(b=>b.onclick = ()=>{ closeDetail(); setView("map"); setWorld(b.dataset.w === "worlds"); });
 

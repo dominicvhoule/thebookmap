@@ -10,7 +10,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Libre+Bodoni:ital,wght@0,500;0,700;1,500;1,700&family=Literata:opsz,wght@7..72,400;7..72,500;7..72,600&family=Spline+Sans+Mono:wght@400;500&display=swap">
 <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
-<link rel="stylesheet" href="styles.css?v=202610281745">
+<link rel="stylesheet" href="styles.css?v=202610281830">
 </head>
 <body>
 <header class="mast">
@@ -31,6 +31,7 @@
   <section class="mapwrap" aria-label="Map">
     <div id="map" role="region" aria-label="World map of where your books are set"></div>
     <div class="worlds" id="worlds" hidden></div>
+    <div class="wsearch" id="wsearch" role="search" hidden><label for="wq" class="sr">Search other worlds</label><input id="wq" type="search" autocomplete="off" spellcheck="false" placeholder="Search a world, place, book or author"><ul class="wres" id="wres" hidden></ul></div>
     <div class="mapbar">
       <div class="whose"><small id="whose-k">Loading</small><h2 id="whose-h">Your map</h2><div class="genres" id="genres" hidden></div></div>
       <div class="mapside"><div class="worldtog" role="group" aria-label="Which map" hidden><button type="button" data-w="earth" aria-pressed="true">Earth</button><button type="button" data-w="worlds" aria-pressed="false">Other worlds <span id="wcount"></span></button></div><div class="viewtog" role="group" aria-label="Show as"><button type="button" data-v="map" aria-pressed="true">Map</button><button type="button" data-v="list" aria-pressed="false">List</button><button type="button" data-v="stats" aria-pressed="false">Stats</button></div>
@@ -69,11 +70,11 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/topojson/3.0.2/topojson.min.js"></script>
 <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
-<script src="config.js?v=202610281745"></script>
-<script src="js/featured.js?v=202610281745"></script>
-<script src="js/data.js?v=202610281745"></script>
-<script src="js/worlds.js?v=202610281745"></script>
-<script src="js/wikiplot.js?v=202610281745"></script>
-<script src="js/app.js?v=202610281745"></script>
+<script src="config.js?v=202610281830"></script>
+<script src="js/featured.js?v=202610281830"></script>
+<script src="js/data.js?v=202610281830"></script>
+<script src="js/worlds.js?v=202610281830"></script>
+<script src="js/wikiplot.js?v=202610281830"></script>
+<script src="js/app.js?v=202610281830"></script>
 </body>
 </html>
