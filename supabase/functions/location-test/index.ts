@@ -12,6 +12,7 @@
 // POST {ticket, action: "status",  batch_id}                          → the batch's processing status
 // POST {ticket, action: "cancel",  batch_id}                          → cancels a batch (unfinished requests aren't billed)
 // POST {ticket, action: "reparse"}                                    → re-reads saved replies that didn't parse
+// POST {ticket, action: "english", ids: [up to 40]}                    → English title/author (Haiku), originals kept
 // ("try" saves as variant "trial" unless a variant is passed, e.g. "v2.0" to count with the batched results)
 
 import { locationPrompt, parseAnswer, PROMPT_VERSION } from "./prompt.ts";
@@ -95,6 +96,45 @@ Deno.serve(async (req) => {
         if (!w.ok) return json({ error: "load_" + w.status, detail: (await w.text()).slice(0, 300) }, 500);
       }
       return json({ loaded: rows.length });
+    }
+
+    if (action === "english") {
+      // English published title and English author name for up to 40 books in one Haiku call (owner, 2026-10-29:
+      // books are shown in English only). The originals are kept in title_orig / author_orig.
+      const ids = (Array.isArray(b.ids) ? (b.ids as number[]) : []).map(Number).filter(Number.isFinite).slice(0, 40);
+      const r0 = await db(`loc_test_books?select=id,title,author,year,title_orig,author_orig&id=in.(${ids.join(",")})`);
+      const list = r0.ok ? await r0.json() : [];
+      if (!list.length) return json({ error: "no_books" }, 400);
+      const src = list.map((x: Record<string, unknown>) => ({ id: x.id, title: x.title_orig ?? x.title, author: x.author_orig ?? x.author, year: x.year }));
+      const prompt = `For each book below, give the title it is published under in English and the author's name as it appears on English-language editions.
+- Use the standard English title (e.g. "Cien años de soledad" → "One Hundred Years of Solitude", "Анна Каренина" → "Anna Karenina"). If the title is already English, keep it exactly as given.
+- Author names in Latin letters as English editions print them, keeping accents (e.g. "村上春樹" → "Haruki Murakami", "Fiódor Dostoievski" → "Fyodor Dostoevsky", "Gabriel García Márquez" stays). If already in that form, keep it exactly.
+- If a book has no English edition, keep its original title, transliterated into Latin letters if it uses another script.
+- Keep series notes in parentheses as they are.
+Books (JSON): ${JSON.stringify(src)}
+Reply with only a JSON array, one object per book, same ids: [{"id": number, "title": "...", "author": "..."}]`;
+      const r = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: AH,
+        body: JSON.stringify({ model: "claude-haiku-5-5", max_tokens: 8000, messages: [{ role: "user", content: prompt }] }) });
+      const msg = r.ok ? await r.json() : null;
+      if (!msg) return json({ error: "claude_" + r.status, detail: (await r.text()).slice(0, 300) }, 502);
+      const text = textOf(msg);
+      const m = text.match(/\[[\s\S]*\]/);
+      let out: { id: number; title: string; author: string }[] = [];
+      try { out = m ? JSON.parse(m[0]) : []; } catch { return json({ error: "unparsed", raw: text.slice(0, 500) }, 502); }
+      const changed: unknown[] = [];
+      for (const x of src) {
+        const e = out.find((o) => Number(o.id) === Number(x.id));
+        if (!e || typeof e.title !== "string" || typeof e.author !== "string" || !e.title.trim()) continue;
+        const t = e.title.trim().slice(0, 300), a = e.author.trim().slice(0, 200);
+        const row: Record<string, unknown> = { english_checked_at: new Date().toISOString() };
+        if (t !== x.title || a !== x.author) {
+          Object.assign(row, { title: t, author: a, title_orig: x.title, author_orig: x.author });
+          changed.push({ id: x.id, from: [x.title, x.author], to: [t, a] });
+        }
+        await db(`loc_test_books?id=eq.${x.id}`, { method: "PATCH", body: JSON.stringify(row) });
+      }
+      const usage = (msg.usage ?? {}) as { input_tokens?: number; output_tokens?: number };
+      return json({ checked: src.length, changed, in: usage.input_tokens, out: usage.output_tokens });
     }
 
     if (action === "reparse") {

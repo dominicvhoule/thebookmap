@@ -1,6 +1,7 @@
 // TheBookMap: a short summary of what a book is about, worked out once per book and saved for everyone.
 //
-//   1. If the book has a Wikipedia article (the site finds it and sends its title), the summary is the
+//   1. If the book has a Wikipedia article (the site sends its title, or this function finds it: Wikidata's
+//      link from the Open Library work, else a Wikipedia search checked against title and author), the summary is the
 //      story sentences from that article, credited on the site as "From Wikipedia … (CC BY-SA 4.0), adapted".
 //   2. If there's no article, Claude writes two or three sentences in its own words, from the library
 //      catalogue's description and what it knows about the book. No credit is needed for those.
@@ -15,6 +16,8 @@
 // Deploy with "Verify JWT" on (the site's public key is enough; visitors don't need to sign in).
 //
 // POST {key, title, author?, year?, ol?, page?, lang?}  →  {summary, source, page?, lang?}
+// POST {ticket, action:"prefill", books:[{key,title,author,year,ol}]}  → fills in up to 8 books ahead of time
+//   (private: the ticket comes from SQL _fn_call), so cards open with their summary already there.
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -40,7 +43,7 @@ const db = (path: string, init: RequestInit = {}) =>
     headers: { apikey: SERVICE, Authorization: `Bearer ${SERVICE}`, "Content-Type": "application/json", ...(init.headers ?? {}) },
   });
 const clip = (s: unknown, n: number) => String(s ?? "").trim().slice(0, n);
-const norm = (s: string) => String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/&/g, "and").replace(/[^a-z0-9]/g, "");
+const norm = (s: string) => String(s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/&/g, "and").replace(/[^a-z0-9]/g, "");
 
 // ---------- Wikipedia: keep the sentences about the story ----------
 const META = /\b(published|publication|publish|reprint|considered|regarded|acclaimed|hailed|bestsell|best-sell|best sell|award|prize|nominat|adapted|adaptation|translated|translation|installments?|instalments?|serial|serialized|edition|sold|copies|praised|critic|review|banned|film|movie|television|miniseries|ranked|greatest|masterpiece|classic|landmark|debut|sequel|trilogy|series of|volume|imprint|publisher|author of|written by|wrote|his (first|second|third|last|final)|her (first|second|third|last|final)|literary|literature|genre|bestseller|nominee|Wikipedia|magazine|newspaper|list of|depiction|depicts|portrayal|portrays|helped|influence|influential|popular|popularity|audience|reception|Pulitzer|Nobel|best known|best-known|inspired|controversy|controversial)(s|es|ed|ing)?\b/i;
@@ -62,10 +65,17 @@ function trimTo(list: string[]) {
   for (const s of list) { if (out && (out + " " + s).length > 430) break; out = out ? out + " " + s : s; if (out.length > 300) break; }
   return out.length > 430 ? out.slice(0, 427).replace(/\s+\S*$/, "") + "…" : out;
 }
-async function wikiSummary(page: string, title: string) {
-  // Only accept an article that is this book (its title, optionally with "(novel)" and the like).
-  const base = norm(page.replace(/\s*\([^)]*\)\s*$/, "")), want = norm(title.replace(/\s*[:;(].*$/, ""));
-  if (!base || !want || (base !== want && !base.startsWith(want) && !want.startsWith(base))) return "";
+// Titles compared loosely: no leading "A/An/The", British and American spellings alike.
+const titleNorm = (t: string) => norm(t.replace(/\s*\([^)]*\)\s*$/, "").replace(/\s*[:;].*$/, "").replace(/^(a|an|the)\s+/i, ""))
+  .replace(/centre/g, "center").replace(/colour/g, "color").replace(/favour/g, "favor").replace(/honour/g, "honor");
+const titleOk = (page: string, title: string) => {
+  const base = titleNorm(page), want = titleNorm(title);
+  return !!base && !!want && (base === want || base.startsWith(want) || want.startsWith(base));
+};
+async function wikiSummary(page: string, title: string, trusted = false) {
+  // Only accept an article that is this book (its title, optionally with "(novel)" and the like), unless
+  // Wikidata linked it to the book's Open Library record.
+  if (!trusted && !titleOk(page, title)) return "";
   const r = await fetch(`https://en.wikipedia.org/w/api.php?action=query&prop=extracts&explaintext=1&exsectionformat=wiki&redirects=1&format=json&formatversion=2&titles=${encodeURIComponent(page)}`, { headers: UA });
   if (!r.ok) throw new Error("wiki_" + r.status);
   const text: string = (await r.json())?.query?.pages?.[0]?.extract ?? "";
@@ -74,6 +84,31 @@ async function wikiSummary(page: string, title: string) {
   const plot = sec ? sec[2].replace(/\n===[^=]+===\n/g, " ") : "";
   const pick = [story(lead), story(plot, true)].find((l) => l.join(" ").length >= 80) ?? [];
   return trimTo(pick);
+}
+
+// ---------- finding the book's article when the site didn't send one ----------
+const getJson = (url: string) => fetch(url, { headers: UA, signal: AbortSignal.timeout(8000) }).then((r) => r.ok ? r.json() : null).catch(() => null);
+async function findPage(title: string, author: string, ol: string): Promise<{ page: string; trusted: boolean }> {
+  // 1. Wikidata: the item that carries this Open Library work ID, and its English Wikipedia article.
+  if (/^OL\d+W$/.test(ol)) {
+    const s = await getJson(`https://www.wikidata.org/w/api.php?action=query&list=search&srsearch=haswbstatement:P648=${ol}&srlimit=1&format=json`);
+    const qid = s?.query?.search?.[0]?.title;
+    if (/^Q\d+$/.test(qid || "")) {
+      const e = await getJson(`https://www.wikidata.org/w/api.php?action=wbgetentities&ids=${qid}&props=sitelinks&sitefilter=enwiki&format=json`);
+      const page = e?.entities?.[qid]?.sitelinks?.enwiki?.title;
+      if (page) return { page, trusted: true };
+    }
+  }
+  // 2. A Wikipedia search: the article's title must be the book's, and its opening must name the author.
+  const surname = norm(String(author || "").split(/,| and | & /)[0].trim().split(/\s+/).pop() || "");
+  const q = `${title.replace(/\s*[:;(].*$/, "")} ${author.split(/,| and | & /)[0]}`;
+  const r = await getJson(`https://en.wikipedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(q)}&gsrlimit=5&prop=extracts&exintro=1&explaintext=1&exlimit=5&redirects=1&format=json&formatversion=2`);
+  const pages = (r?.query?.pages ?? []).sort((a: { index: number }, b: { index: number }) => a.index - b.index);
+  for (const p of pages) {
+    const intro = norm(String(p.extract || "").slice(0, 600));
+    if (titleOk(p.title, title) && surname.length > 2 && intro.includes(surname) && !/may refer to/i.test(p.extract || "")) return { page: p.title, trusted: false };
+  }
+  return { page: "", trusted: false };
 }
 
 // ---------- Claude: a summary in its own words ----------
@@ -127,15 +162,16 @@ async function aiToday() {
 const save = (row: Record<string, unknown>) =>
   db("book_summaries?on_conflict=book_key", { method: "POST", headers: { Prefer: "resolution=merge-duplicates" }, body: JSON.stringify({ ...row, created_at: new Date().toISOString() }) }).catch(() => {});
 
-Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
-  if (req.method !== "POST") return json({ error: "method" }, 405);
-  let b: Record<string, unknown> = {};
-  try { b = await req.json(); } catch { /* empty */ }
-  const key = clip(b.key, 300), title = clip(b.title, 300), author = clip(b.author, 200), page = clip(b.page, 300);
-  const year = Number(b.year) || null;
-  if (!key || !title) return json({ error: "bad_request" }, 400);
+async function useTicket(token: unknown) {
+  if (typeof token !== "string" || !/^[A-Za-z0-9_-]{24,100}$/.test(token)) return false;
+  const r = await db(`loc_test_tickets?token=eq.${token}`, { method: "DELETE", headers: { Prefer: "return=representation" } });
+  const rows = r.ok ? await r.json() : [];
+  return Array.isArray(rows) && rows.length === 1;
+}
 
+type Ask = { key: string; title: string; author: string; year: number | null; ol: string; page: string };
+async function summarise(a: Ask) {
+  const { key, title, author, year, ol } = a;
   // Already worked out? A saved "none" is tried again only if it's from before the current prompt or more
   // than NONE_RETRY_DAYS old, so opening the card again doesn't pay for the same "unknown" every time.
   try {
@@ -145,24 +181,50 @@ Deno.serve(async (req) => {
     const stale = s && s.source === "wikipedia" && String(s.created_at || "") < WIKI_FILTER_SINCE;
     const at = String(s && s.created_at || "");
     const retryNone = s && s.source === "none" && ANTHROPIC_KEY && (at < PROMPT_SINCE || Date.now() - Date.parse(at) > NONE_RETRY_DAYS * 86400_000);
-    if (s && !stale && !retryNone) return json({ summary: s.summary ?? "", source: s.source, page: s.wiki_page ?? null, lang: s.wiki_lang ?? null, cached: true });
+    if (s && !stale && !retryNone) return { summary: s.summary ?? "", source: s.source, page: s.wiki_page ?? null, lang: s.wiki_lang ?? null, cached: true };
   } catch { /* carry on */ }
 
   try {
+    const found = a.page ? { page: a.page, trusted: false } : await findPage(title, author, ol).catch(() => ({ page: "", trusted: false }));
+    const page = found.page;
     if (page) {
-      const text = await wikiSummary(page, title);
+      const text = await wikiSummary(page, title, found.trusted);
       if (text) {
         await save({ book_key: key, summary: text, source: "wikipedia", wiki_page: page, wiki_lang: "en" });
-        return json({ summary: text, source: "wikipedia", page, lang: "en" });
+        return { summary: text, source: "wikipedia", page, lang: "en" };
       }
     }
-    if (!ANTHROPIC_KEY) return json({ summary: "", source: "none", reason: "no_api_key" });
-    if (!(await knownBook(key))) return json({ summary: "", source: "none", reason: "not_on_a_map" });
-    if ((await aiToday()) >= DAILY_AI_CAP) return json({ summary: "", source: "none", reason: "daily_cap" });
-    const text = await askClaude(title, author, year, await olDescription(clip(b.ol, 20)));
+    if (!ANTHROPIC_KEY) return { summary: "", source: "none", reason: "no_api_key" };
+    if (!(await knownBook(key))) return { summary: "", source: "none", reason: "not_on_a_map" };
+    if ((await aiToday()) >= DAILY_AI_CAP) return { summary: "", source: "none", reason: "daily_cap" };
+    // A catalogue description from the wrong edition can make Claude unsure of a book it knows well, so an
+    // "unknown" is asked once more on the title and author alone.
+    const desc = await olDescription(ol);
+    let text = await askClaude(title, author, year, desc);
+    if (!text && desc) text = await askClaude(title, author, year, "");
     await save({ book_key: key, summary: text || null, source: text ? "ai" : "none" });
-    return json({ summary: text, source: text ? "ai" : "none" });
+    return { summary: text, source: text ? "ai" : "none" };
   } catch (e) {
-    return json({ summary: "", source: "none", reason: String((e as Error).message || "failed") });
+    return { summary: "", source: "none", reason: String((e as Error).message || "failed") };
   }
+}
+const askFrom = (b: Record<string, unknown>): Ask => ({
+  key: clip(b.key, 300), title: clip(b.title, 300), author: clip(b.author, 200), year: Number(b.year) || null, ol: clip(b.ol, 20), page: clip(b.page, 300),
+});
+
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
+  if (req.method !== "POST") return json({ error: "method" }, 405);
+  let b: Record<string, unknown> = {};
+  try { b = await req.json(); } catch { /* empty */ }
+  if (b.action === "prefill") {
+    if (!(await useTicket(b.ticket))) return json({ error: "bad_ticket" }, 403);
+    const list = (Array.isArray(b.books) ? b.books : []).slice(0, 8).map((x) => askFrom(x as Record<string, unknown>)).filter((x) => x.key && x.title);
+    const done: Record<string, string> = {};
+    for (const x of list) done[x.key] = String((await summarise(x)).source);
+    return json({ done });
+  }
+  const a = askFrom(b);
+  if (!a.key || !a.title) return json({ error: "bad_request" }, 400);
+  return json(await summarise(a));
 });

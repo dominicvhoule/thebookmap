@@ -2,7 +2,7 @@
 // Shared by the test bench (location-test) and, once it wins the test, the live pipeline.
 // The rules mirror the Project doc location-pipeline-v2.md; edit them here.
 
-export const PROMPT_VERSION = "v2.5";
+export const PROMPT_VERSION = "v2.6";
 
 export function locationPrompt(b: { title: string; author: string; year?: number | null; description?: string | null }) {
   return `You help a website put every book a reader has read on a world map.
@@ -31,7 +31,11 @@ STEP 2. Answer for that type:
 
 Place names must be real names a map can find: "Loire Valley", "Ontario", "Kyoto", "Lyon". Never a description ("the Rhine corridor", "rural Provence", "an unnamed village"): put descriptions in "why". "region" is the state, province or equivalent first-level division (null for a city-state or a country-level answer). "country" is always one modern country.
 
-STEP 3. Be honest about what you know:
+STEP 3. Names in English (the site shows books in English only):
+- "english_title": the title the book is published under in English (e.g. "Cien años de soledad" → "One Hundred Years of Solitude"); the same title if it is already English; the original, transliterated into Latin letters, if there is no English edition.
+- "english_author": the author's name as English-language editions print it, in Latin letters, keeping accents (e.g. "Gabriel García Márquez").
+
+STEP 4. Be honest about what you know:
 - "known": "well" if you know this book itself; "description" if you are working mainly from the description and the author; "guessing" if you are not sure. Never present a guess as certain.
 - "ambiguous": true when two or more places are equally strong as the anchor (a novel split evenly between two cities, a memoir split between two homes). Put them all in "candidates", main first; readers will help decide.
 
@@ -46,6 +50,8 @@ Reply with only this JSON object, no other text:
  "known": "well" | "description" | "guessing",
  "ambiguous": true | false,
  "candidates": [{"place": "...", "country": "..."}],
+ "english_title": "...",
+ "english_author": "...",
  "why": "one sentence, under 30 words"}`;
 }
 

@@ -104,7 +104,7 @@ if(sb){
   };
   MM.aiSetting = null;   // switched on after sign-in, once the function answers
   MM.summaryServer = body => sb.functions.invoke("book-summary", {body}).then(({data, error})=>{ if(error) throw error; return data; });
-  MM.summaryStored = key => sb.from("book_summaries").select("summary,source,wiki_page").eq("book_key", key).maybeSingle()
+  MM.summaryStored = key => cardCache.has(key) && cardCache.get(key).sum ? Promise.resolve(cardCache.get(key).sum) : sb.from("book_summaries").select("summary,source,wiki_page").eq("book_key", key).maybeSingle()
     .then(({data, error})=>{ if(error || !data || !data.summary || data.source === "none") return null; return {text:data.summary, source:data.source, page:data.wiki_page || null}; });
   // "More like this" (similar-books function): the reader's own books are left out on the server too.
   MM.similarServer = book => sb.functions.invoke("similar-books", {body:{book, exclude:myBooks.slice(0, 3000).map(MM.bookKey), n:12}}).then(({data, error})=>{ if(error) throw error; return data; });
@@ -485,7 +485,8 @@ function filtered(){
   const q = ($("#q").value||"").toLowerCase().trim();
   let list = viewing.films;
   if(genreSel) list = list.filter(f=>inGenre(f, genreSel));
-  return q ? list.filter(f=>[f.t,f.a,f.p,f.c,f.s].join(" ").toLowerCase().includes(q)) : list;
+  // Books are shown in English; their original-language title and author (to / ao) still match a search.
+  return q ? list.filter(f=>[f.t,f.a,f.p,f.c,f.s,f.to,f.ao].join(" ").toLowerCase().includes(q)) : list;
 }
 // The genre menu under the map's title: pick one to see only those books (and where they're set).
 function pickGenre(g){
@@ -617,7 +618,7 @@ function openGroup(g){
   detail.querySelector(".x").onclick = closeDetail;
   detail.querySelectorAll(".multi button").forEach(b=>b.onclick = ()=>openBook(g.films[+b.dataset.i]));
   // Warm up what each listed book's card needs, so tapping one opens it with its summary already there.
-  g.films.slice(0, 8).forEach(f=>{ MM.bookSummary(f).catch(()=>null); if(f.coverId) loadImg(MM.coverURL(f, "L")); });
+  g.films.slice(0, 8).forEach(f=>{ const c = cardCache.get(MM.bookKey(f)); if(!(c && c.sum)) MM.bookSummary(f).then(sum=>cacheSummary(f, sum)).catch(()=>null); if(f.coverId) loadImg(MM.coverURL(f, "L")); });
 }
 // The book card appears in one go: cover, details and suggestions together. Opening another book
 // meanwhile cancels this one.
@@ -663,6 +664,37 @@ function lazyCovers(root, bookOf, size){
   return io;
 }
 const loadImg = url => !url ? Promise.resolve(null) : new Promise(res=>{ const im = new Image(); im.onload = ()=>res(im.naturalWidth > 10 ? url : null); im.onerror = ()=>res(null); im.src = url; });
+// Everything a book card shows for every book on the map, read in one go when the map is shown
+// (book_cards: saved summary, Wikipedia credit, readers' ratings and reviews), so tapping a book opens its
+// card at once with nothing to wait for. A book that isn't in the answer has no saved summary and no
+// ratings yet: its card opens straight away and the summary is worked out then.
+var cardCache = new Map();   // book key → {sum:{text, source, page} | null, cm: book_community object | null}
+var noCommunity = {ratings:0, average:null, spread:[0,0,0,0,0], review_count:0, reviews:[]};
+var cardAsked = new Set();
+function warmCards(films){
+  if(!sb || !films || !films.length) return Promise.resolve();
+  const keys = [...new Set(films.map(MM.bookKey))].filter(k=>!cardAsked.has(k) && !(cardCache.has(k) && !cardCache.get(k).partial));
+  keys.forEach(k=>cardAsked.add(k));
+  const jobs = [];
+  for(let i=0; i<keys.length; i+=1000){
+    const part = keys.slice(i, i+1000);
+    jobs.push(sb.rpc("book_cards", {p_keys:part}).then(({data, error})=>{
+      if(error){ part.forEach(k=>cardAsked.delete(k)); return; }
+      const got = new Map((data || []).map(r=>[r.k, r]));
+      part.forEach(k=>{
+        const r = got.get(k);
+        const had = cardCache.get(k);
+        cardCache.set(k, {sum: r && r.s ? {text:r.s, source:r.src || "", page:r.pg || null} : (had && had.sum) || null, cm: r && r.cm ? r.cm : null});
+      });
+    }, ()=>part.forEach(k=>cardAsked.delete(k))));
+  }
+  return Promise.all(jobs);
+}
+function cacheSummary(b, sum){
+  if(!sum || !sum.text) return;
+  const k = MM.bookKey(b), c = cardCache.get(k);
+  if(c) c.sum = sum; else cardCache.set(k, {sum, cm:null, partial:true});
+}
 // Everything a book card shows, fetched before the card appears (each part gives up after a few seconds).
 async function cardParts(b, ms = 5000){
   const cover = (async()=>loadImg(b.coverId ? MM.coverURL(b, "L") : await coverOf(b, "L")))().catch(()=>null);
@@ -677,10 +709,12 @@ async function openBook(f, fly){
   if(MM.inOtherWorld(f) !== worldView && mapView === "map") setWorld(MM.inOtherWorld(f));
   if(fly) flyTo(f);
   renderPins(); markListSelection();
-  // The card opens almost at once: it waits only a moment for the cover (usually ~50 ms from storage) and a
-  // summary that's already known; anything slower fills in after the card is open.
-  const {url, sum} = await cardParts(f, 700);
-  if(token !== openToken || selected !== f) return;
+  // The card opens at once, from what was read when the map loaded (cardCache): the summary is already
+  // there and the cover image loads from the cover store in place. Only a book nobody has opened before
+  // fills in its summary after the card is open.
+  const cached = cardCache.get(MM.bookKey(f));
+  const sum = cached && cached.sum || null;
+  const url = f.coverId ? MM.coverURL(f, "L") : null;
   const note = MM.cleanNote(f.n, placeLine(f));
   const mine = viewing.mine;
   detail.innerHTML = `<div class="top">${coverSlot(f, url)}
@@ -699,6 +733,8 @@ async function openBook(f, fly){
   if(!(sum && sum.text)) fillSummary(f, token);
   if(!url) fillCover(f, token);
   bindWant(f);
+  // Readers' ratings and reviews show at once from the map's read, then refresh quietly.
+  if(cached && !cached.partial) renderCommunity(f, token, mine, cached.cm || noCommunity);
   fillCommunity(f, token, mine);
   // Suggestions only load when asked for, which also keeps opening a card quick.
   const moreBtn = detail.querySelector("#d-more-btn");
@@ -747,6 +783,7 @@ function fillSummary(b, token){
   const el0 = detail.querySelector("#d-sum");
   if(el0 && !el0.innerHTML.trim()) el0.innerHTML = `<p class="hint busy" style="margin:0">Finding what it's about…</p>`;
   MM.bookSummary(b).catch(()=>null).then(sum=>{
+    cacheSummary(b, sum);
     const el = token === openToken && detail.querySelector("#d-sum");
     if(el) el.innerHTML = sum && sum.text ? sumHTML(sum) : "";
   });
@@ -805,11 +842,23 @@ async function openPreview(m, from){
 // On a book that's on your own map you can write, edit or delete your review; it shows with your stars.
 const fmtWhen = t => { const d = new Date(t); return isNaN(+d) ? "" : d.toLocaleDateString([], {day:"numeric", month:"short", year:"numeric"}); };
 async function fillCommunity(b, token, mine){
-  const box = detail.querySelector("#d-comm"); if(!box || !sb) return;
+  if(!detail.querySelector("#d-comm") || !sb) return;
   const key = MM.bookKey(b);
   let c = null;
   try{ const {data, error} = await sb.rpc("book_community", {p_key:key, p_limit:50}); if(error) throw error; c = data; }catch(e){ return; }
-  if(token !== openToken || !detail.contains(box) || !c) return;
+  if(!c) return;
+  const cached = cardCache.get(key);
+  if(cached && !cached.partial){
+    const same = JSON.stringify(cached.cm || noCommunity) === JSON.stringify(c.ratings || c.review_count ? c : noCommunity);
+    cached.cm = c.ratings || c.review_count ? c : null;
+    if(same && detail.querySelector("#d-comm .comm")) return;   // already showing this; don't redraw under the reader's typing
+  }
+  renderCommunity(b, token, mine, c);
+}
+function renderCommunity(b, token, mine, c){
+  const box = detail.querySelector("#d-comm");
+  if(token !== openToken || !box || !c) return;
+  const key = MM.bookKey(b);
   const reviews = c.reviews || [];
   const myReview = me ? reviews.find(r=>r.mine || (r.username && r.username === me.username)) : null;
   const others = reviews.filter(r=>r !== myReview);
@@ -934,7 +983,7 @@ async function renderCTA(){
     cta.prepend(b);
   }
 }
-function renderAll(){ setOwnerHeader(); renderGenres(); renderPins(); renderList(); renderCTA(); renderCountryList(); }
+function renderAll(){ setOwnerHeader(); renderGenres(); renderPins(); renderList(); renderCTA(); renderCountryList(); warmCards(viewing.films); }
 
 function showMap(owner, films, mine){
   viewing = {owner, films, mine};
