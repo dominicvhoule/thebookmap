@@ -416,7 +416,7 @@ MM.similarServer = null;   // set by app.js: (book) => Promise<{list}>
 MM.similarFrom = async function(f, exclude){
   if(MM.similarServer){
     try{
-      const r = await MM.similarServer({t:f.t, a:f.a || "", y:+f.y || null, ol:f.ol || "", coverId:f.coverId || null, p:f.p || "", c:f.c || "", w:f.w || "", lat:isFinite(f.lat) ? f.lat : null});
+      const r = await MM.similarServer({t:f.t, a:f.a || "", y:+f.y || null, ol:f.ol || "", coverId:f.coverId || null, p:f.p || "", c:f.c || "", w:f.w || "", lat:Number.isFinite(f.lat) ? f.lat : null});
       const mine = MM.bookKey(f);
       const list = (r && r.list || []).filter(m=>m && m.t && m.coverId && m.key !== mine && !(exclude && exclude(m))).slice(0, 8);
       if(list.length >= 3) return {list, heading:"More like this"};

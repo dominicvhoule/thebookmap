@@ -27,7 +27,7 @@
     for(const a in ALIAS) if(k.startsWith(a + " ") || k === a) return ALIAS[a];
     return s;
   };
-  MM.inOtherWorld = f => !!(f && f.w && !isFinite(f.lat));
+  MM.inOtherWorld = f => !!(f && f.w && !Number.isFinite(f.lat));
 
   // Small seeded random numbers, so each world always gets the same coastline.
   function seeded(str){

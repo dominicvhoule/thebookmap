@@ -31,6 +31,8 @@ const SERVICE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const UA = { "User-Agent": "TheBookMap/1.0 (+https://dominicvhoule.github.io/thebookmap/)" };
 const DAILY_AI_CAP = 3000;
 const WIKI_FILTER_SINCE = "2026-10-26T00:30:00Z";   // when the story-sentence filter last changed
+const PROMPT_SINCE = "2026-10-30T01:05:00Z";        // when the prompt learned to summarise non-fiction
+const NONE_RETRY_DAYS = 30;                          // a book Claude couldn't summarise is asked again after this
 
 const db = (path: string, init: RequestInit = {}) =>
   fetch(`${SB_URL}/rest/v1/${path}`, {
@@ -91,9 +93,12 @@ async function askClaude(title: string, author: string, year: number | null, des
 Book: ${title}${author ? ` by ${author}` : ""}${year ? ` (${year})` : ""}
 Catalogue description (may be a publisher's blurb, possibly in another language): ${description || "(none)"}
 
-Using the description and what you know about this book, write 2 or 3 sentences (under 70 words) saying what it is about: who it follows, where, and the situation they're in. Write entirely in your own words in English; don't copy phrases from the description. No spoilers past the opening, no praise, no mention of awards, sales, adaptations or the author's life.
+Using the description and what you know about this book, write 2 or 3 sentences (under 70 words) saying what it is about.
+- A novel, story, play or poem: who it follows, where, and the situation they're in. No spoilers past the opening.
+- Non-fiction (history, science, self-help, philosophy, business, religion, a memoir or biography): what it covers and its main idea or argument; for a memoir or biography, whose life and which part of it.
+Write entirely in your own words in English; don't copy phrases from the description. No praise, no mention of awards, sales, adaptations or the author's life outside the book.
 
-If you don't know this book and the description doesn't say enough to summarise it accurately, reply with exactly: UNKNOWN`;
+Only if you don't know this book at all and the description doesn't say enough to summarise it accurately, reply with exactly: UNKNOWN`;
   const r = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
@@ -106,7 +111,7 @@ If you don't know this book and the description doesn't say enough to summarise 
 }
 // Claude is only asked about books that are really on someone's map or in the shared catalogue.
 async function knownBook(key: string) {
-  for (const t of ["book_logs", "book_matches", "book_settings"]) {
+  for (const t of ["book_logs", "book_matches", "book_settings", "book_vectors"]) {
     try {
       const rows = await (await db(`${t}?book_key=eq.${encodeURIComponent(key)}&select=book_key&limit=1`)).json();
       if (Array.isArray(rows) && rows.length) return true;
@@ -131,13 +136,16 @@ Deno.serve(async (req) => {
   const year = Number(b.year) || null;
   if (!key || !title) return json({ error: "bad_request" }, 400);
 
-  // Already worked out? (A saved "none" is tried again once Claude is available.)
+  // Already worked out? A saved "none" is tried again only if it's from before the current prompt or more
+  // than NONE_RETRY_DAYS old, so opening the card again doesn't pay for the same "unknown" every time.
   try {
     const hit = await (await db(`book_summaries?book_key=eq.${encodeURIComponent(key)}&select=*`)).json();
     const s = Array.isArray(hit) && hit[0];
     // Wikipedia summaries picked before the sentence filter was tightened are picked again.
     const stale = s && s.source === "wikipedia" && String(s.created_at || "") < WIKI_FILTER_SINCE;
-    if (s && !stale && (s.source !== "none" || !ANTHROPIC_KEY)) return json({ summary: s.summary ?? "", source: s.source, page: s.wiki_page ?? null, lang: s.wiki_lang ?? null, cached: true });
+    const at = String(s && s.created_at || "");
+    const retryNone = s && s.source === "none" && ANTHROPIC_KEY && (at < PROMPT_SINCE || Date.now() - Date.parse(at) > NONE_RETRY_DAYS * 86400_000);
+    if (s && !stale && !retryNone) return json({ summary: s.summary ?? "", source: s.source, page: s.wiki_page ?? null, lang: s.wiki_lang ?? null, cached: true });
   } catch { /* carry on */ }
 
   try {

@@ -450,7 +450,7 @@ function groupBooks(list){
   const groups = [];
   const near = 26;   // pixels
   list.forEach(f=>{
-    if(!isFinite(f.lat) || !isFinite(f.lon)) return;
+    if(!Number.isFinite(f.lat) || !Number.isFinite(f.lon)) return;
     const p = map.project([f.lon, f.lat]);
     let g = groups.find(g=>Math.abs(g.px - p.x) < near && Math.abs(g.py - p.y) < near);
     if(!g){ g = {lat:f.lat, lon:f.lon, px:p.x, py:p.y, films:[]}; groups.push(g); }
@@ -580,7 +580,7 @@ function renderPins(){
 }
 function fitPins(animate){
   if(!mapReady) return;
-  const pts = viewing.films.filter(f=>isFinite(f.lat) && isFinite(f.lon));
+  const pts = viewing.films.filter(f=>Number.isFinite(f.lat) && Number.isFinite(f.lon));
   if(!pts.length){ map.jumpTo(WORLD_VIEW); return; }
   const b = new maplibregl.LngLatBounds();
   pts.forEach(f=>b.extend([f.lon, f.lat]));
@@ -589,7 +589,7 @@ function fitPins(animate){
 }
 // Centre a place in the part of the map the book card leaves uncovered.
 function flyTo(f){
-  if(!mapReady || !isFinite(f.lat)) return;
+  if(!mapReady || !Number.isFinite(f.lat)) return;
   const el = map.getContainer(), W = el.clientWidth, H = el.clientHeight;
   const phone = window.innerWidth <= 860 || W < 560;
   const cardW = Math.min(380, W - 48) + 24;
@@ -747,15 +747,17 @@ async function openPreview(m, from){
   // still being worked out (it can take longer for a book nobody has added), the card opens anyway and
   // the place fills in when it arrives.
   // Suggestions from "More like this" may already carry their v2 place (or invented world); use it as is.
-  const known = isFinite(m.lat) && isFinite(m.lon) ? [{p:m.p, c:m.c || "", lat:m.lat, lon:m.lon, ap:m.ap ? 1 : 0, n:m.n || "", src:"v2"}]
-    : (m.w && !isFinite(m.lat) ? [{p:MM.worldName ? MM.worldName(m.w) : m.w, c:"", n:m.n || "", w:m.w, src:"v2"}] : null);
+  const known = Number.isFinite(m.lat) && Number.isFinite(m.lon) ? [{p:m.p, c:m.c || "", lat:m.lat, lon:m.lon, ap:m.ap ? 1 : 0, n:m.n || "", src:"v2"}]
+    : (m.w && !Number.isFinite(m.lat) ? [{p:MM.worldName ? MM.worldName(m.w) : m.w, c:"", n:m.n || "", w:m.w, src:"v2"}]
+    // A v2 place without coordinates yet: show where it's set, but don't drop a pin at 0°, 0°.
+    : (m.p ? [{p:m.p, c:m.c || "", n:m.n || "", src:"v2"}] : null));
   const setP = known ? Promise.resolve(known) : MM.resolveSettings([m]).catch(()=>null);
   const [det0, settings, parts] = await Promise.all([timeout(MM.bookDetails(m).catch(()=>m), 4000), timeout(setP, 4000), cardParts(m, 4000)]);
   if(token !== openToken) return;
   const det = det0 || m;
   const s = settings && settings[0];
   const placeBlock = s => s ? `<div><div class="place">${esc(placeLine({p:s.p, c:s.c}))}</div>${whyHTML(MM.cleanNote(s.n, placeLine({p:s.p, c:s.c})))}</div>` : `<p class="hint" style="margin:0">We couldn't find where this one is set.</p>`;
-  const showPlace = s => { if(s && isFinite(s.lat)){ preview = {lat:s.lat, lon:s.lon}; selected = null; renderPins(); flyTo({lat:s.lat, lon:s.lon}); } };
+  const showPlace = s => { if(s && Number.isFinite(s.lat)){ preview = {lat:s.lat, lon:s.lon}; selected = null; renderPins(); flyTo({lat:s.lat, lon:s.lon}); } };
   showPlace(s);
   if(settings === null) setP.then(r=>{ const el = token === openToken && $("#pv-place"); if(el){ const s2 = r && r[0]; el.innerHTML = placeBlock(s2); showPlace(s2); } });
   detail.innerHTML = `<div class="top">${coverSlot(det, parts.url)}
@@ -1111,6 +1113,8 @@ document.querySelectorAll(".worldtog button").forEach(b=>b.onclick = ()=>{ close
 // Map, List and Stats: three ways to look at the same books.
 let mapView = "map", listQuery = "";
 function setView(v){
+  // List and Stats are views of the Earth map: leaving for them closes Other worlds, its search box and card.
+  if(v !== "map" && typeof worldView !== "undefined" && worldView){ closeDetail(); setWorld(false); }
   mapView = v;
   document.querySelectorAll(".viewtog button").forEach(b=>b.setAttribute("aria-pressed", String(b.dataset.v === v)));
   $(".mapwrap").classList.toggle("listing", v !== "map");
@@ -1279,14 +1283,14 @@ async function chooseBook(m){
     draftRating = m.r || null;
     st.textContent = s ? "Check the setting, rate it, then pin it." : "We couldn't find where this one is set. Tap Place pin on the map, then tap where it takes place.";
     renderConfirm();
-    if(isFinite(draft.lat)){ preview = {lat:draft.lat, lon:draft.lon}; renderPins(); flyTo(draft); }
+    if(Number.isFinite(draft.lat)){ preview = {lat:draft.lat, lon:draft.lon}; renderPins(); flyTo(draft); }
   }catch(e){
     st.classList.remove("busy"); st.textContent = "Couldn't load that book. Try again.";
   }
 }
 function renderConfirm(){
   const f = draft, el = $("#lc"); el.hidden = false;
-  const placed = isFinite(f.lat);
+  const placed = Number.isFinite(f.lat);
   const have = onMyMap(f);
   const cover = MM.coverURL(f, "M");
   el.innerHTML = `<div class="box" style="background:var(--card)">
@@ -1726,7 +1730,7 @@ async function renderMapCards(){
   let rows = [];
   if(booksReady){ try{ const {data, error} = await sb.rpc("book_maps", {n:12}); if(!error) rows = data || []; }catch(e){} }
   const card = (href, name, user, books, ctry, pts, tag) => `<a class="mcard" href="${href}">${mapThumb(pts)}<span class="mc-b"><b>${esc(name)}</b><span class="m">${tag ? esc(tag) + " · " : ""}${books} book${books===1?"":"s"} · ${ctry} countr${ctry===1?"y":"ies"}</span></span></a>`;
-  const starterPts = (FEATURED.books || []).filter(f=>isFinite(f.lat)).map(f=>[f.lon, f.lat]);
+  const starterPts = (FEATURED.books || []).filter(f=>Number.isFinite(f.lat)).map(f=>[f.lon, f.lat]);
   const starterCtry = new Set((FEATURED.books || []).map(f=>f.c).filter(Boolean)).size;
   const html = rows.filter(r=>!me || r.id !== me.id).map(r=>card(`#/u/${encodeURIComponent(r.username)}`, r.display_name || r.username, r.username, +r.books, +r.countries, r.pts)).join("")
     + card(`#/u/${FEATURED.username}`, FEATURED.name, FEATURED.username, FEATURED.books.length || FEATURED.count || 0, starterCtry, starterPts, "Starter shelf");
