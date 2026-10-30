@@ -104,6 +104,8 @@ if(sb){
   };
   MM.aiSetting = null;   // switched on after sign-in, once the function answers
   MM.summaryServer = body => sb.functions.invoke("book-summary", {body}).then(({data, error})=>{ if(error) throw error; return data; });
+  MM.summaryStored = key => sb.from("book_summaries").select("summary,source,wiki_page").eq("book_key", key).maybeSingle()
+    .then(({data, error})=>{ if(error || !data || !data.summary || data.source === "none") return null; return {text:data.summary, source:data.source, page:data.wiki_page || null}; });
   // "More like this" (similar-books function): the reader's own books are left out on the server too.
   MM.similarServer = book => sb.functions.invoke("similar-books", {body:{book, exclude:myBooks.slice(0, 3000).map(MM.bookKey), n:12}}).then(({data, error})=>{ if(error) throw error; return data; });
   MM.saveRemoteSettings = async map => {
@@ -612,6 +614,8 @@ function openGroup(g){
     <div class="body"><ul class="multi">${g.films.map((f,i)=>`<li><button data-i="${i}"><b>${esc(f.t)}</b><span class="meta">${esc(f.a)}</span></button></li>`).join("")}</ul></div>`;
   detail.querySelector(".x").onclick = closeDetail;
   detail.querySelectorAll(".multi button").forEach(b=>b.onclick = ()=>openBook(g.films[+b.dataset.i]));
+  // Warm up what each listed book's card needs, so tapping one opens it with its summary already there.
+  g.films.slice(0, 8).forEach(f=>{ MM.bookSummary(f).catch(()=>null); if(f.coverId) loadImg(MM.coverURL(f, "L")); });
 }
 // The book card appears in one go: cover, details and suggestions together. Opening another book
 // meanwhile cancels this one.
@@ -671,8 +675,9 @@ async function openBook(f, fly){
   if(MM.inOtherWorld(f) !== worldView && mapView === "map") setWorld(MM.inOtherWorld(f));
   if(fly) flyTo(f);
   renderPins(); markListSelection();
-  // The card waits until its cover and summary have loaded, then appears complete.
-  const {url, sum} = await cardParts(f);
+  // The card opens almost at once: it waits only a moment for the cover (usually ~50 ms from storage) and a
+  // summary that's already known; anything slower fills in after the card is open.
+  const {url, sum} = await cardParts(f, 700);
   if(token !== openToken || selected !== f) return;
   const note = MM.cleanNote(f.n, placeLine(f));
   const mine = viewing.mine;
@@ -690,6 +695,7 @@ async function openBook(f, fly){
   detail.hidden = false; detail.scrollTop = 0;
   detail.querySelector(".x").onclick = closeDetail;
   if(!(sum && sum.text)) fillSummary(f, token);
+  if(!url) fillCover(f, token);
   bindWant(f);
   fillCommunity(f, token, mine);
   // Suggestions only load when asked for, which also keeps opening a card quick.
@@ -736,9 +742,18 @@ function shopLink(shop, b){
 // A summary, with Wikipedia's credit line when it came from an article.
 const sumHTML = sum => sum && sum.text ? `<p class="ov">${esc(sum.text)}</p>${MM.summaryCredit(sum) ? `<p class="sumcredit">${MM.summaryCredit(sum)}</p>` : ""}` : "";
 function fillSummary(b, token){
+  const el0 = detail.querySelector("#d-sum");
+  if(el0 && !el0.innerHTML.trim()) el0.innerHTML = `<p class="hint busy" style="margin:0">Finding what it's about…</p>`;
   MM.bookSummary(b).catch(()=>null).then(sum=>{
     const el = token === openToken && detail.querySelector("#d-sum");
-    if(el && sum && sum.text) el.innerHTML = sumHTML(sum);
+    if(el) el.innerHTML = sum && sum.text ? sumHTML(sum) : "";
+  });
+}
+// A cover that wasn't ready when the card opened is put in as soon as it has loaded.
+function fillCover(b, token){
+  (async()=>loadImg(b.coverId ? MM.coverURL(b, "L") : await coverOf(b, "L")))().catch(()=>null).then(url=>{
+    const slot = url && token === openToken && detail.querySelector(".top .poster");
+    if(slot && !slot.querySelector("img")) slot.insertAdjacentHTML("beforeend", `<img src="${esc(url)}" alt="Cover of ${esc(b.t)}" style="position:relative;z-index:2" onerror="this.remove()">`);
   });
 }
 async function openPreview(m, from){

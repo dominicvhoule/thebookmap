@@ -205,10 +205,27 @@ async function wikiSummaryText(page){
 // one (credited on the card), otherwise a summary Claude writes in its own words. If the server isn't
 // reachable, the Wikipedia part runs here in the browser instead.
 MM.summaryServer = null;   // set by app.js: (body) => Promise<{summary, source, page}>
-MM.bookSummary = async function(b){
-  if(!b || !b.t) return {text:"", source:""};
+// A summary already saved on the server (book_summaries, readable by everyone): one quick read, set by app.js.
+MM.summaryStored = null;   // (key) => Promise<{text, source, page} | null>
+const sumInFlight = new Map();
+MM.bookSummary = function(b){
+  if(!b || !b.t) return Promise.resolve({text:"", source:""});
+  // Asked twice at once (e.g. warmed up from a list, then opened): share one lookup.
+  const key = MM.bookKey(b);
+  if(sumInFlight.has(key)) return sumInFlight.get(key);
+  const p = bookSummaryLookup(b).finally(()=>sumInFlight.delete(key));
+  sumInFlight.set(key, p);
+  return p;
+};
+async function bookSummaryLookup(b){
   const k = "bm-sum4:" + MM.bookKey(b);
   const hit = MM.lsGet(k, null); if(hit !== null) return hit;
+  // Most books someone has opened before already have a saved summary: read it first, before any
+  // Wikipedia or Wikidata lookups.
+  if(MM.summaryStored){
+    const saved = await MM.summaryStored(MM.bookKey(b)).catch(()=>null);
+    if(saved && saved.text){ MM.lsSet(k, saved); return saved; }
+  }
   let det = b;
   if(!det.ol && !det.qid){ const m = await MM.matchBook(b).catch(()=>null); if(m) det = Object.assign({}, m, {t:b.t, a:b.a}); }
   if(!det.qid && det.ol){ const q = await MM.qidsForWorks([det.ol]).catch(()=>({})); if(q[det.ol]) det = Object.assign({}, det, {qid:q[det.ol]}); }
@@ -228,7 +245,7 @@ MM.bookSummary = async function(b){
   out = out || {text:"", source:""};
   if(out.text || page) MM.lsSet(k, out);   // don't remember a miss caused by a failed lookup
   return out;
-};
+}
 // The credit Wikipedia's licence asks for, shown under a summary taken from an article.
 MM.summaryCredit = function(sum){
   if(!sum || sum.source !== "wikipedia" || !sum.page) return "";
