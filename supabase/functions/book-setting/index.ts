@@ -4,8 +4,8 @@
 // prompts bigger and, when the search found the wrong article, misled Claude. Each answer is saved in
 // book_settings, so a book is looked up once for everyone.
 //
-// The same call also writes the book's card summary (into book_summaries) when the book has no Wikipedia
-// article to take one from, so a book never needs two Claude calls.
+// Card summaries are not written here any more (2026-10-29): the book-summary function is their only
+// writer, so every book gets the same kind of summary (fiction and non-fiction, Wikipedia first).
 //
 // Protections against running up the bill (every call is logged in ai_calls):
 //   - only books that are on someone's map or in the shared catalogue are looked up;
@@ -112,7 +112,11 @@ const sameTitle = (page: string, title: string) => {
   const base = norm(page.replace(/\s*\([^)]*\)\s*$/, "")), want = norm(title.replace(/\s*[:;(].*$/, ""));
   return !!base && !!want && (base === want || base.startsWith(want) || want.startsWith(base));
 };
+// Since 2026-10-29 card summaries have one writer, the book-summary function (one prompt for fiction and
+// non-fiction, Wikipedia first). This function no longer writes them; the code is kept for replays.
+const WRITE_SUMMARIES = false;
 async function summaryNeeded(key: string, page: string | null, title: string) {
+  if (!WRITE_SUMMARIES) return false;
   if (page && sameTitle(page, title)) return false;
   try {
     const rows = await (await db(`book_summaries?book_key=eq.${encodeURIComponent(key)}&select=source,summary`)).json();

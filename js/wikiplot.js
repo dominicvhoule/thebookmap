@@ -218,7 +218,7 @@ MM.bookSummary = function(b){
   return p;
 };
 async function bookSummaryLookup(b){
-  const k = "bm-sum4:" + MM.bookKey(b);
+  const k = "bm-sum5:" + MM.bookKey(b);   // v5 (2026-10-29): forget empty results saved before the summary fix
   const hit = MM.lsGet(k, null); if(hit !== null) return hit;
   // Most books someone has opened before already have a saved summary: read it first, before any
   // Wikipedia or Wikidata lookups.
@@ -243,7 +243,7 @@ async function bookSummaryLookup(b){
     out = {text, source:text ? "wikipedia" : "", page};
   }
   out = out || {text:"", source:""};
-  if(out.text || page) MM.lsSet(k, out);   // don't remember a miss caused by a failed lookup
+  if(out.text) MM.lsSet(k, out);   // only real summaries are kept here; the server remembers misses
   return out;
 }
 // The credit Wikipedia's licence asks for, shown under a summary taken from an article.

@@ -212,6 +212,7 @@ function bindWant(b){
         w.shelf = shelf; toast(`Moved to ${name}`);
       } else {
         const {data, error} = await sb.from("book_wants").insert(Object.assign(wantFields(b), {shelf})).select().single();
+        if(!error) warmSummaries([b]);
         if(error){ if(error.code === "23505"){ await loadWants(); redo(); return; } throw error; }
         myWants.unshift(wantRow(data)); toast(`Added to ${name}`);
       }
@@ -235,6 +236,7 @@ async function syncLists(entries){
     else if(w.shelf !== e.shelf) moves[e.shelf].push(w.id);
   }
   for(let i=0; i<fresh.length; i+=200){ const {error} = await sb.from("book_wants").upsert(fresh.slice(i, i+200), {onConflict:"user_id,book_key", ignoreDuplicates:true}); if(error) throw error; }
+  warmSummaries(entries.filter(e=>fresh.some(r=>r.book_key === MM.bookKey(e))));
   for(const shelf of Object.keys(moves)) for(let i=0; i<moves[shelf].length; i+=100){ const {error} = await sb.from("book_wants").update({shelf}).in("id", moves[shelf].slice(i, i+100)); if(error) throw error; }
   await loadWants();
   return {added:fresh.length, moved:moves.want.length + moves.reading.length, done:done.length};
@@ -1059,8 +1061,8 @@ function setWorld(on){
 function renderWorlds(){
   paintWorldTog();
   if(!worldView) return;
-  const bar = $(".mapbar"), wrap = $(".mapwrap");
-  if(bar && wrap) $("#wsearch").style.top = Math.round(bar.getBoundingClientRect().bottom - wrap.getBoundingClientRect().top + 8) + "px";
+  const side = $(".mapside"), wrap = $(".mapwrap");
+  if(side && wrap) $("#wsearch").style.top = Math.round(side.getBoundingClientRect().bottom - wrap.getBoundingClientRect().top + 8) + "px";
   MM.renderWorlds($("#worlds"), worldBooks(), {selected, world:worldSel, icon:ICON, query:worldQuery, focus:worldFocus,
     onBook: f=>openBook(f, false),
     onWorld: w=>openWorld(w)});
@@ -1333,7 +1335,7 @@ function renderConfirm(){
     const f = Object.assign({}, draft); if(draftRating) f.r = draftRating;
     $("#c-pin").disabled = true;
     try{
-      await Store.add([f]); await reloadMine();
+      await Store.add([f]); await reloadMine(); warmSummaries([f]);
       draft = null; preview = null; toast("Pinned " + f.t);
       location.hash = "#/";
       setTimeout(()=>{ const g = myBooks.find(x=>MM.bookKey(x)===MM.bookKey(f)); if(g) openBook(g, true); }, 700);
@@ -1592,6 +1594,21 @@ function readStoryGraph(rows){
   const lists = rows.filter(r=>["to-read", "currently-reading"].includes(status(r))).map(r=>Object.assign(base(r), {shelf:status(r) === "to-read" ? "want" : "reading"}));
   return {books, lists, shelved:rows.length, source:"The StoryGraph"};
 }
+// Card summaries are made as soon as books are added (logged, imported, or put on a reading list), a
+// couple at a time in the background, so a book's card is ready when it's first opened. There's one
+// writer, the book-summary function: the saved summary if there is one, else the book's own Wikipedia
+// article (credited), else Claude in its own words. Each book is done once and shared with everyone.
+const sumQueue = []; let sumBusy = 0;
+function warmSummaries(list){
+  (list || []).forEach(b=>{ if(b && b.t) sumQueue.push(b); });
+  const next = () => {
+    while(sumBusy < 2 && sumQueue.length){
+      const b = sumQueue.shift(); sumBusy++;
+      MM.bookSummary(b).catch(()=>null).finally(()=>{ sumBusy--; setTimeout(next, 300); });
+    }
+  };
+  next();
+}
 let importing = false;
 async function importGoodreadsExport(file, status, button){
   if(importing) return;
@@ -1632,6 +1649,7 @@ async function importGoodreadsExport(file, status, button){
       const r = await placeEntries(part, (d)=>say(`Finding where your books take place… ${i + d} of ${todo.length}. Keep this page open.${Date.now() - MM.olBusyAt < 30000 ? " Open Library is busy, so this is going slower; nothing will be skipped." : ""}`));
       added += (await Store.add(r.ready)).added;
       missed.push(...r.missed);
+      warmSummaries(r.ready);
       // Show progress as it happens: the new books on the map, and the box's counts.
       await reloadMine();
       const sofar = MM.lsGet(grReportKey(), null) || {missed:[], total:0};
