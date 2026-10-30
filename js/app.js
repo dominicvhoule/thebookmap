@@ -1885,39 +1885,83 @@ function renderAccount(){
     return;
   }
   const p = me || {};
-  el.innerHTML = `<h2 class="h">@${esc(p.username)}</h2>
-    <form id="pf" style="display:grid;gap:12px">
-      <label class="field" for="p-name">Display name<input id="p-name" maxlength="40" value="${esc(p.display_name)}"></label>
-      <label class="field" for="p-bio">Bio<textarea id="p-bio" maxlength="160" rows="2">${esc(p.bio)}</textarea></label>
-      <div class="field">Import<span style="font-weight:400;font-size:15px"><a href="#/import">Bring in your Goodreads or StoryGraph library on the Import tab</a></span></div>
-      <div class="box"${privacyReady ? "" : " hidden"}>
-        <b class="sub" style="font-size:16px">Who can see my book map</b>
-        <label class="check" for="p-priv"><input type="checkbox" id="p-priv" ${p.book_private ? "checked" : ""}> Keep my book map private</label>
-        <p class="hint" style="margin:0">Public maps can be seen by anyone and appear in Community. A private map is seen only by you: it leaves Community and search, and your link shows "This map is private". Reviews you write stay on book cards, signed "A fellow reader".</p>
+  const name = p.display_name || p.username || "";
+  const sw = (id, on, label) => `<label class="sw" for="${id}"><input type="checkbox" id="${id}" role="switch" ${on ? "checked" : ""}><span class="sw-t" aria-hidden="true"></span><span class="sr">${label}</span></label>`;
+  el.innerHTML = `<div class="acct-head">
+      <span class="avatar" style="background:${MM.avatarColor(p.username || name)}">${esc((name || "?")[0])}</span>
+      <div style="min-width:0"><h2 class="h" style="margin:0">${esc(name)}</h2><p class="hint" style="margin:2px 0 0">@${esc(p.username)}</p></div>
+      <a class="btn ghost small" href="#/u/${encodeURIComponent(p.username)}">View my map</a>
+    </div>
+    <form id="pf" class="settings" novalidate>
+      <section class="set">
+        <h3 class="set-h">Profile</h3>
+        <p class="set-d">How you appear on your map, in Community and next to your reviews.</p>
+        <label class="set-f" for="p-name"><span>Display name</span><input id="p-name" maxlength="40" value="${esc(p.display_name)}" autocomplete="name"></label>
+        <label class="set-f" for="p-bio"><span>Bio <em id="p-bio-n">${(p.bio || "").length}/160</em></span><textarea id="p-bio" maxlength="160" rows="3" placeholder="A line about you and what you read">${esc(p.bio)}</textarea></label>
+      </section>
+      <section class="set"${privacyReady ? "" : " hidden"}>
+        <h3 class="set-h">Privacy</h3>
+        <div class="set-row">
+          <div><b>Private map</b><p>Only you can see your map. It leaves Community and search, and your link shows "This map is private". Reviews you write stay on book cards, signed "A fellow reader".</p></div>
+          ${sw("p-priv", p.book_private, "Private map")}
+        </div>
+      </section>
+      <section class="set">
+        <h3 class="set-h">Find friends</h3>
+        <div class="set-row">
+          <div><b>Let friends find me from their contacts</b><p>Friends who have your email or phone number can find you. We keep only a scrambled fingerprint, never the email or number itself.</p></div>
+          ${sw("p-disc", p.discoverable, "Let friends find me from their contacts")}
+        </div>
+        <label class="set-f" for="p-phone" id="p-phone-f"${p.discoverable ? "" : " hidden"}><span>Phone number <em>optional</em></span><input id="p-phone" type="tel" autocomplete="tel" placeholder="${p.discoverable ? "Saved privately · type to replace" : "Only used for matching"}"></label>
+      </section>
+      <section class="set">
+        <h3 class="set-h">Your books</h3>
+        <div class="set-row">
+          <div><b>Import from Goodreads or The StoryGraph</b><p>Bring in your whole reading history from an export file.</p></div>
+          <a class="btn ghost small" href="#/import">Import</a>
+        </div>
+        <div class="set-row">
+          <div><b>Share my map</b><p>A link anyone can open${p.book_private ? " (your map is private, so others will see it's private)" : ""}.</p></div>
+          <button class="btn ghost small" type="button" id="p-share">Share</button>
+        </div>
+      </section>
+      <section class="set">
+        <h3 class="set-h">Account</h3>
+        <div class="set-row">
+          <div><b>Email</b><p>${esc(session.user.email)}</p></div>
+        </div>
+        <div class="set-row">
+          <div><b>Sign out</b><p>Your account, profile and follows are shared with MovieMap.</p></div>
+          <button class="btn ghost small" type="button" id="p-out">Sign out</button>
+        </div>
+      </section>
+      <div class="set-save">
+        <p class="err" id="p-err" hidden></p>
+        <span class="hint" id="p-state" aria-live="polite">All changes saved</span>
+        <button class="btn" type="submit" id="p-save" disabled>Save changes</button>
       </div>
-      <div class="box">
-        <b class="sub" style="font-size:16px">Find friends from contacts</b>
-        <label class="check" for="p-disc"><input type="checkbox" id="p-disc" ${p.discoverable ? "checked" : ""}> Let friends who have my email or phone number find me</label>
-        <label class="field" for="p-phone">Phone number (optional)<input id="p-phone" type="tel" autocomplete="tel" placeholder="${p.discoverable ? "Saved privately. Type to replace" : "Only used for matching"}"></label>
-        <p class="hint">We store a scrambled fingerprint of your email and phone, never the numbers themselves, and only match it when someone picks you from their contacts.</p>
-      </div>
-      <p class="err" id="p-err" hidden></p>
-      <div class="cta"><button class="btn" type="submit">Save profile</button><button class="btn ghost" type="button" id="p-share">Share my map</button><button class="btn ghost" type="button" id="p-out">Sign out</button></div>
-    </form>
-    <p class="hint">Signed in as ${esc(session.user.email)}. Your profile and follows are shared with MovieMap.</p>`;
+    </form>`;
+  // The Save button wakes up only when something has changed.
+  const snap = () => JSON.stringify([$("#p-name").value, $("#p-bio").value, $("#p-priv") && $("#p-priv").checked, $("#p-disc").checked, $("#p-phone").value]);
+  const start = snap();
+  const dirty = () => { const d = snap() !== start; $("#p-save").disabled = !d; $("#p-state").textContent = d ? "Unsaved changes" : "All changes saved"; };
+  $("#pf").addEventListener("input", dirty); $("#pf").addEventListener("change", dirty);
+  $("#p-bio").addEventListener("input", ()=>{ $("#p-bio-n").textContent = $("#p-bio").value.length + "/160"; });
+  $("#p-disc").addEventListener("change", ()=>{ $("#p-phone-f").hidden = !$("#p-disc").checked; });
   $("#p-out").onclick = async ()=>{ await sb.auth.signOut(); };
   $("#p-share").onclick = ()=>shareLink(profileURL(p.username), "My map on TheBookMap");
   $("#pf").onsubmit = async ev=>{
     ev.preventDefault();
     const e = $("#p-err"); e.hidden = true;
+    $("#p-save").disabled = true; $("#p-state").textContent = "Saving…";
     const disc = $("#p-disc").checked;
     const patch = {display_name:$("#p-name").value.trim(), bio:$("#p-bio").value.trim(), discoverable: disc};
     const {error} = await sb.from("profiles").update(patch).eq("id", me.id);
-    if(error){ e.textContent = "Couldn't save. Try again."; e.hidden = false; return; }
+    if(error){ e.textContent = "Couldn't save. Try again."; e.hidden = false; dirty(); return; }
     const priv = $("#p-priv").checked;
     if(privacyReady && priv !== !!me.book_private){
       const {error:pe} = await sb.from("book_prefs").upsert({user_id:me.id, private:priv, updated_at:new Date().toISOString()}, {onConflict:"user_id"});
-      if(pe){ e.textContent = "Couldn't change who can see your map. Try again."; e.hidden = false; return; }
+      if(pe){ e.textContent = "Couldn't change who can see your map. Try again."; e.hidden = false; dirty(); return; }
       me.book_private = priv;
       if(viewing.mine) setOwnerHeader();
     }
@@ -1933,7 +1977,7 @@ function renderAccount(){
         }
       }
     }catch(x){}
-    Object.assign(me, patch); paintAccountLink(); toast("Profile saved"); renderAccount();
+    Object.assign(me, patch); paintAccountLink(); toast("Changes saved"); renderAccount();
   };
 }
 
