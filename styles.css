@@ -506,3 +506,9 @@ a{color:var(--pin);text-underline-offset:2px}
 .mcard .mc-b b{font-size:14.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mcard .m{font-size:12px;color:var(--muted)}
 .rv-anon{font-weight:600}
+
+/* Import tab: pick Goodreads or The StoryGraph */
+.isrc{display:flex;margin:4px 0 14px;border:1px solid var(--line);background:var(--card);width:max-content;max-width:100%}
+.isrc button{height:36px;padding:0 14px;border:0;background:none;cursor:pointer;font-family:var(--f-mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink)}
+.isrc button+button{border-left:1px solid var(--line)}
+.isrc button[aria-pressed="true"]{background:var(--spine);color:var(--spine-ink)}

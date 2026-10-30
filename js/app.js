@@ -859,7 +859,7 @@ function renderList(){
   if(railTab !== "read"){
     const ws = onList(railTab);
     ul.innerHTML = ws.length ? ws.map((w,i)=>`<li><button data-i="${i}" style="--c:${cloth(w)}"><span class="bar"></span><span class="th" data-i="${i}"></span><span style="min-width:0"><b>${esc(w.t)}</b><span class="meta"><i>${esc(String(w.a).split(" & ")[0])}</i></span></span><span class="r"><em>${esc(w.y)}</em></span></button></li>`).join("")
-      : `<li class="empty">Nothing here yet. Open any book that isn't on your map and press <b>${LISTS[railTab]}</b>, or bring in your Goodreads export.</li>`;
+      : `<li class="empty">Nothing here yet. Open any book that isn't on your map and press <b>${LISTS[railTab]}</b>, or import your Goodreads or StoryGraph export.</li>`;
     ul.querySelectorAll("button[data-i]").forEach(b=>b.onclick = ()=>openPreview(ws[+b.dataset.i], null));
     if(ws.length) listObserver = lazyCovers(ul, el=>ws[+el.dataset.i], "S");
     return;
@@ -886,7 +886,7 @@ async function renderCTA(){
   ov.hidden = true; cta.innerHTML = "";
   const o = viewing.owner || {};
   if(viewing.mine){
-    cta.innerHTML = `<a class="btn gold" href="#/log">Log a book</a><a class="btn ghost" href="#/import">Goodreads</a>${me ? `<button class="btn ghost" id="share">Share</button>` : ""}`;
+    cta.innerHTML = `<a class="btn gold" href="#/log">Log a book</a><a class="btn ghost" href="#/import">Import</a>${me ? `<button class="btn ghost" id="share">Share</button>` : ""}`;
     const sh = $("#share"); if(sh) sh.onclick = ()=>shareLink(profileURL(me.username), "My map on TheBookMap");
     if(me && !booksReady && sb){ ov.hidden = false; ov.innerHTML = "Your books are saved in this browser for now, while TheBookMap's accounts are being set up."; }
     return;
@@ -1459,7 +1459,7 @@ async function syncGoodreads({quiet=false, full=false, progress=null} = {}){
     if((added || changes.rated || changes.removed) && viewing.mine){ viewing.films = myBooks; renderAll(); if(added || changes.removed) fitPins(true); }
     if(changes.removed || changes.rated) toast([changes.removed ? `Removed ${changes.removed} book${changes.removed===1?"":"s"} you took off your Goodreads shelf` : "", changes.rated ? `updated ${changes.rated} rating${changes.rated===1?"":"s"}` : ""].filter(Boolean).join(", ").replace(/^u/, "U"));
     if(changes.held) toast(`${changes.held} books are missing from your Goodreads shelf, which looks like a reading problem, so none were removed`);
-    if(byId.size && (added || !quiet)) toast(`${added ? `Added ${added} from Goodreads. ` : ""}${byId.size} need${byId.size===1?"s":""} a pin: see the Goodreads tab`);
+    if(byId.size && (added || !quiet)) toast(`${added ? `Added ${added} from Goodreads. ` : ""}${byId.size} need${byId.size===1?"s":""} a pin: see the Import tab`);
     else if(added) toast(`Added ${added} book${added===1?"":"s"} from Goodreads`);
     else if(!quiet) toast("You're up to date with Goodreads");
     return {added, total:list.length, rated:changes.rated, removed:changes.removed};
@@ -1545,7 +1545,9 @@ function parseCSV(text){
 }
 function readExport(text){
   const rows = parseCSV(text);
-  if(!rows.length || !("Title" in rows[0]) || !("Exclusive Shelf" in rows[0])) return null;
+  if(!rows.length || !("Title" in rows[0])) return null;
+  if("Read Status" in rows[0] && ("Authors" in rows[0] || "Star Rating" in rows[0])) return readStoryGraph(rows);
+  if(!("Exclusive Shelf" in rows[0])) return null;
   const day = s => { const m = String(s || "").match(/^(\d{4})[/-](\d{1,2})[/-](\d{1,2})/); return m ? `${m[1]}-${m[2].padStart(2,"0")}-${m[3].padStart(2,"0")}` : ""; };
   const books = rows.filter(r=>r["Exclusive Shelf"] === "read").map(r=>{
     const c = MM.cleanTitle(r.Title);
@@ -1558,7 +1560,22 @@ function readExport(text){
     return {t:c.t, s:c.s, a:r.Author || "", gr:/^\d+$/.test(r["Book Id"] || "") ? r["Book Id"] : "", isbn:isbnOk(r.ISBN), isbn13:isbnOk(r.ISBN13),
       y:+(r["Original Publication Year"] || r["Year Published"]) || "", shelf:r["Exclusive Shelf"] === "to-read" ? "want" : "reading"};
   });
-  return {books, lists, shelved:rows.length};
+  return {books, lists, shelved:rows.length, source:"Goodreads"};
+}
+// The StoryGraph's export (Manage Account → Manage Your Data → Export StoryGraph Library): one CSV with
+// Title, Authors, ISBN/UID, Read Status (read / currently-reading / to-read / did-not-finish…), Star Rating
+// (can be quarter stars), Last Date Read, Read Count, Review. Mapped onto the same entries as Goodreads.
+function readStoryGraph(rows){
+  const day = s => { const m = String(s || "").match(/(\d{4})[/-](\d{1,2})[/-](\d{1,2})/); return m ? `${m[1]}-${m[2].padStart(2,"0")}-${m[3].padStart(2,"0")}` : ""; };
+  const status = r => String(r["Read Status"] || "").toLowerCase().trim().replace(/[\s_]+/g, "-");
+  const author = r => String(r.Authors || r.Author || "").split(/,| & | and /)[0].trim();
+  const isbn = r => { const v = String(r["ISBN/UID"] || r.ISBN || "").replace(/[^0-9Xx]/g, ""); return isbnOk(v); };
+  const rating = r => { const v = parseFloat(r["Star Rating"]); return v > 0 ? Math.max(1, Math.min(5, Math.round(v))) : null; };
+  const base = r => { const c = MM.cleanTitle(r.Title); const i = isbn(r); return {t:c.t, s:c.s, a:author(r), gr:"", isbn:i && i.length === 10 ? i : "", isbn13:i && i.length === 13 ? i : "", y:""}; };
+  const books = rows.filter(r=>status(r) === "read").map(r=>Object.assign(base(r), {
+    pages:null, r:rating(r), read:day(r["Last Date Read"]) || day(r["Dates Read"]) || "", rv:(r.Review || "").trim() ? 1 : 0, rc:Math.max(1, +r["Read Count"] || 1)}));
+  const lists = rows.filter(r=>["to-read", "currently-reading"].includes(status(r))).map(r=>Object.assign(base(r), {shelf:status(r) === "to-read" ? "want" : "reading"}));
+  return {books, lists, shelved:rows.length, source:"The StoryGraph"};
 }
 let importing = false;
 async function importGoodreadsExport(file, status, button){
@@ -1568,8 +1585,8 @@ async function importGoodreadsExport(file, status, button){
   try{
     say("Reading your export…");
     const got = readExport(await file.text());
-    if(!got){ say("That file doesn't look like a Goodreads export. Choose goodreads_library_export.csv, the file Goodreads gives you."); return; }
-    const {books, lists} = got;
+    if(!got){ say("That file doesn't look like a Goodreads or StoryGraph export. Choose the CSV file Goodreads or The StoryGraph gives you, without changing it."); return; }
+    const {books, lists, source} = got;
     // The to-read and currently-reading shelves go on the reading lists (after the map, so books just read come off them).
     const listNote = async () => {
       if(!lists.length || !(sb && session && me)) return "";
@@ -1613,20 +1630,23 @@ async function importGoodreadsExport(file, status, button){
     const byId = new Map(); [...prev.missed, ...missed].forEach(m=>byId.set(m.gr || MM.bookKey(m), m));
     MM.lsSet(grReportKey(), {total:Math.max(prev.total || 0, books.length), full:true, missed:[...byId.values()]});
     if(viewing.mine){ viewing.films = myBooks; renderAll(); fitPins(true); }
-    toast(`Added ${added} book${added===1?"":"s"} from your Goodreads export`);
+    toast(`Added ${added} book${added===1?"":"s"} from your ${source} export`);
     renderImport();
     const s2 = $("#grcs"); if(s2) s2.textContent = `Done: ${added} added${missed.length ? `, ${missed.length} need${missed.length===1?"s":""} a pin (listed above)` : ""}.${ln}`;
-  }catch(e){ say("Couldn't read that file. Try the CSV exactly as Goodreads sent it."); }
+  }catch(e){ say("Couldn't read that file. Try the CSV exactly as Goodreads or The StoryGraph sent it."); }
   finally{ importing = false; if(button) button.removeAttribute("aria-disabled"); }
 }
 
+let importFrom = MM.lsGet("bm-import-from", "goodreads");
 function renderImport(){
   const el = $("#import");
-  if(signedOut()) return needAccount(el, "Goodreads", "import your Goodreads library and bring in your books");
+  if(signedOut()) return needAccount(el, "Import", "import your books from Goodreads or The StoryGraph");
   showMine_keepView();
-  el.innerHTML = `<h2 class="h">Goodreads</h2>
-    <p class="hint">Bring in every book you've read on Goodreads, with your ratings and dates read. Goodreads exports your whole library as one file, with no limit on how many books, and it works whether your profile is public or private.</p>
-    <figure class="howvid">
+  const gr = importFrom !== "storygraph";
+  el.innerHTML = `<h2 class="h">Import your books</h2>
+    <p class="hint">Bring in every book you've read, with your ratings and dates read, from Goodreads or The StoryGraph. Both let you export your whole library as one file, whether your profile is public or private.</p>
+    <div class="seg isrc" role="group" aria-label="Import from"><button type="button" data-src="goodreads" aria-pressed="${gr}">Goodreads</button><button type="button" data-src="storygraph" aria-pressed="${!gr}">The StoryGraph</button></div>
+    ${gr ? `<figure class="howvid">
       <video src="media/goodreads-export.mp4" poster="media/goodreads-export.jpg" controls muted playsinline preload="none" aria-label="Screen recording: on Goodreads, open My Books, then Import and export, press Export Library, then download the file"></video>
       <figcaption>On Goodreads: <b>My Books</b> → <b>Import and export</b> (left, under Tools) → <b>Export Library</b>. When the link to your file appears under the button, click it to download.</figcaption>
     </figure>
@@ -1634,11 +1654,16 @@ function renderImport(){
       <li><span class="n">1</span><span class="tx"><a href="https://www.goodreads.com/review/import" target="_blank" rel="noopener">Export your library on Goodreads ↗</a><span>My Books → Import and export → Export Library</span></span></li>
       <li><span class="n">2</span><span class="tx"><b>Download the file Goodreads makes</b><span>It's called goodreads_library_export.csv</span></span></li>
       <li><span class="n">3</span><span class="tx"><b>Bring it in here</b><span>Your books are placed on your map</span></span><label class="btn small" for="grcsv" tabindex="0">Choose the file</label><input type="file" id="grcsv" accept=".csv,text/csv" hidden></li>
-    </ol>
+    </ol>` : `<ol class="howto">
+      <li><span class="n">1</span><span class="tx"><a href="https://app.thestorygraph.com/" target="_blank" rel="noopener">Export your library on The StoryGraph ↗</a><span>Your profile picture → Manage Account → Manage Your Data → Export StoryGraph Library, then Generate export</span></span></li>
+      <li><span class="n">2</span><span class="tx"><b>Download the file when it's ready</b><span>It can take a few minutes; the CSV appears on the same page</span></span></li>
+      <li><span class="n">3</span><span class="tx"><b>Bring it in here</b><span>Your books are placed on your map</span></span><label class="btn small" for="grcsv" tabindex="0">Choose the file</label><input type="file" id="grcsv" accept=".csv,text/csv" hidden></li>
+    </ol>`}
     <p class="hint" id="grcs" aria-live="polite"></p>
-    <p class="hint">Read more books since? Export again and import the new file: books already on your map are skipped.</p>
+    <p class="hint">Read more books since? Export again and import the new file: books already on your map are skipped. Books marked read go on your map; to-read and currently-reading go on your reading lists.</p>
     <div id="grrep" aria-live="polite"></div>
     ${!cloud() ? `<p class="notice">${me ? "Books save in this browser for now." : '<a href="#/account">Sign in</a> to keep your books on your account.'}</p>` : ""}`;
+  el.querySelectorAll(".isrc button").forEach(b=>b.onclick = ()=>{ importFrom = b.dataset.src; MM.lsSet("bm-import-from", importFrom); renderImport(); });
   renderImportReport();
   const csv = $("#grcsv"), cl = el.querySelector('label[for="grcsv"]');
   if(cl) cl.onkeydown = e=>{ if(e.key === "Enter" || e.key === " "){ e.preventDefault(); csv.click(); } };
@@ -1831,7 +1856,7 @@ function renderAccount(){
     <form id="pf" style="display:grid;gap:12px">
       <label class="field" for="p-name">Display name<input id="p-name" maxlength="40" value="${esc(p.display_name)}"></label>
       <label class="field" for="p-bio">Bio<textarea id="p-bio" maxlength="160" rows="2">${esc(p.bio)}</textarea></label>
-      <div class="field">Goodreads<span style="font-weight:400;font-size:15px"><a href="#/import">Import your library on the Goodreads tab</a></span></div>
+      <div class="field">Import<span style="font-weight:400;font-size:15px"><a href="#/import">Bring in your Goodreads or StoryGraph library on the Import tab</a></span></div>
       <div class="box"${privacyReady ? "" : " hidden"}>
         <b class="sub" style="font-size:16px">Who can see my book map</b>
         <label class="check" for="p-priv"><input type="checkbox" id="p-priv" ${p.book_private ? "checked" : ""}> Keep my book map private</label>
@@ -1916,8 +1941,8 @@ function showWelcome(){
   showPanel("welcome");
   $("#whose-k").textContent = "Welcome to"; $("#whose-h").textContent = "TheBookMap";
   $("#welcome").innerHTML = `<h2 class="h">See the world one book at a time</h2>
-    <p class="lead">Every book you've read, pinned where its story takes place. Import your Goodreads library and your whole Read shelf lands on the map, or add books one by one.</p>
-    <div class="cta"><a class="btn gold" href="#/account/up">Create your map</a><a class="btn ghost" href="#/import">Import from Goodreads</a></div>
+    <p class="lead">Every book you've read, pinned where its story takes place. Import your Goodreads or StoryGraph library and every book you've read lands on the map, or add books one by one.</p>
+    <div class="cta"><a class="btn gold" href="#/account/up">Create your map</a><a class="btn ghost" href="#/import">Import your books</a></div>
     <p class="hint">Already have an account? <a href="#/account/in">Sign in</a>. MovieMap accounts work here too.</p>
     <h3 class="sub" style="margin-top:22px">Or look around first</h3>
     <div class="list">${starterCard()}</div>`;
