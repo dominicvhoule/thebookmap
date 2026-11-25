@@ -551,3 +551,17 @@ a{color:var(--pin);text-underline-offset:2px}
 .results button:hover .plus{border-color:var(--gold)}
 .films .addrow a{display:block;padding:10px 12px;font-family:var(--f-mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--spine);text-decoration:none;border-bottom:1px solid var(--line)}
 .films .addrow a:hover{background:var(--card)}
+
+/* Your map: Read | Want to read (which books the map shows) */
+.shelftog{display:flex;border:1px solid var(--line);background:var(--card);flex:none}
+.shelftog[hidden]{display:none}
+.shelftog button{height:36px;padding:0 12px;border:0;background:none;cursor:pointer;font-family:var(--f-mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink);white-space:nowrap}
+.shelftog button+button{border-left:1px solid var(--line)}
+.shelftog button span{color:var(--muted);margin-left:4px}
+.shelftog button[aria-pressed="true"]{background:var(--spine);color:var(--spine-ink)}
+.shelftog button[aria-pressed="true"] span{color:var(--gold-soft)}
+/* Want-to-read pins: hollow, so the two maps never look alike */
+#map.shelf-want .gpin .b{background:var(--card);color:var(--gold);border-color:var(--gold)}
+#map.shelf-want .gpin:hover .b{background:var(--gold);color:var(--card)}
+.shelfnote{position:absolute;left:50%;bottom:64px;transform:translateX(-50%);z-index:3;background:var(--card);border:1px solid var(--line);padding:7px 12px;font-size:13px;color:var(--muted);white-space:nowrap}
+.shelfnote[hidden]{display:none}

@@ -121,13 +121,23 @@ if(sb){
 const LOCAL = "bm-local-books";
 const NEED_ACCOUNT = "Create an account or sign in to save books to your map.";
 const signedOut = () => !!(sb && !me);
+// Signed in, but the account's book tables couldn't be reached when the page loaded (a network blip):
+// try again, and never quietly save to this browser instead, or the books wouldn't follow the account.
+const OFFLINE = "Couldn't reach your account, so nothing was saved. Check your connection and try again.";
+async function accountReady(){
+  if(!(sb && me) || booksReady) return true;
+  booksReady = await checkBooksTable().catch(()=>false);
+  return booksReady;
+}
 const Store = {
   async load(){
+    if(me && !(await accountReady())) throw new Error(OFFLINE);
     if(cloud()) return fetchLogs(me.id);
     return signedOut() ? [] : MM.lsGet(LOCAL, []);
   },
   async add(list){
     if(!list.length) return {added:0};
+    if(me && !(await accountReady())) throw new Error(OFFLINE);
     if(cloud()){
       const rows = list.map(toRow);
       let added = 0;
@@ -146,6 +156,7 @@ const Store = {
     return {added:fresh.length};
   },
   async update(f, patch){
+    if(me && !(await accountReady())) throw new Error(OFFLINE);
     if(cloud() && f.id){
       const row = toRow(Object.assign({}, f, patch));
       const {error} = await sb.from("book_logs").update({lat:row.lat, lon:row.lon, approx:row.approx, place:row.place, country:row.country, continent:row.continent,
@@ -160,6 +171,7 @@ const Store = {
     importReportChanged();
   },
   async remove(f){
+    if(me && !(await accountReady())) throw new Error(OFFLINE);
     if(cloud() && f.id){ const {error} = await sb.from("book_logs").delete().eq("id", f.id); if(error) throw error; }
     else if(!cloud()){ if(signedOut()) throw new Error(NEED_ACCOUNT); const k = MM.bookKey(f); MM.lsSet(LOCAL, MM.lsGet(LOCAL, []).filter(x=>MM.bookKey(x)!==k)); }
     importReportChanged();
@@ -245,13 +257,14 @@ async function syncLists(entries){
 }
 // The reading log's heading: on your own map, three tabs side by side: Read | Reading | Want to read, each with a count.
 function paintRailTabs(){
+  paintShelfTog();
   const h = $("#loghead"); if(!h) return;
   const head = h.closest(".listhead");
   if(!(viewing.mine && me)){ railTab = "read"; head.classList.remove("tabbed"); h.removeAttribute("role"); h.textContent = "Reading log"; $("#q").hidden = false; return; }
   head.classList.add("tabbed"); h.setAttribute("role", "group"); h.setAttribute("aria-label", "Your lists");
   const tab = (k, name, n) => `<button type="button" data-tab="${k}" aria-pressed="${railTab === k}"><b>${name}</b><span>${n}</span></button>`;
   h.innerHTML = tab("read", "Read", myBooks.length) + tab("reading", "Reading", onList("reading").length) + tab("want", "Want to read", onList("want").length);
-  h.querySelectorAll("button").forEach(b=>b.onclick = ()=>{ railTab = b.dataset.tab; renderList(); });
+  h.querySelectorAll("button").forEach(b=>b.onclick = ()=>{ railTab = b.dataset.tab; if(railTab === "read" || railTab === "want") setMapShelf(railTab); renderList(); });
   $("#q").hidden = railTab !== "read";
 }
 async function reloadMine(){ try{ myBooks = await Store.load(); }catch(e){ myBooks = []; toast("Couldn't load your books. Check your connection."); } importReportChanged(); }
@@ -483,9 +496,16 @@ const GENRE_MENU = [
 ];
 const GENRE_OF = Object.fromEntries(GENRE_MENU);
 const inGenre = (f, sel) => !sel || (f.g || []).some(x=>GENRE_OF[sel].includes(x));
+// Your own map shows either the books you've read or your Want to read list (placed the same way, hollow pins).
+let mapShelf = "read", wantPlaced = new Map(), placingWants = 0;
+const wantMode = () => mapShelf === "want" && viewing.mine && !!me;
+function mapBooks(){
+  if(!wantMode()) return viewing.films;
+  return onList("want").map(w=>wantPlaced.get(w.key)).filter(Boolean);
+}
 function filtered(){
   const q = ($("#q").value||"").toLowerCase().trim();
-  let list = viewing.films;
+  let list = mapBooks();
   if(genreSel) list = list.filter(f=>inGenre(f, genreSel));
   // Books are shown in English; their original-language title and author (to / ao) still match a search.
   return q ? list.filter(f=>[f.t,f.a,f.p,f.c,f.s,f.to,f.ao].join(" ").toLowerCase().includes(q)) : list;
@@ -497,7 +517,7 @@ function pickGenre(g){
 }
 function renderGenres(){
   const el = $("#genres"); if(!el) return;
-  const films = viewing.films || [];
+  const films = mapBooks() || [];
   const count = {}; GENRE_MENU.forEach(([g])=>{ count[g] = films.filter(f=>inGenre(f, g)).length; });
   const list = GENRE_MENU.map(([g])=>g).filter(g=>count[g]);
   if(viewing.owner && viewing.owner.welcome || !list.length){ el.hidden = true; el.innerHTML = ""; return; }
@@ -587,7 +607,7 @@ function renderPins(){
 }
 function fitPins(animate){
   if(!mapReady) return;
-  const pts = viewing.films.filter(f=>Number.isFinite(f.lat) && Number.isFinite(f.lon));
+  const pts = mapBooks().filter(f=>Number.isFinite(f.lat) && Number.isFinite(f.lon));
   if(!pts.length){ map.jumpTo(WORLD_VIEW); return; }
   const b = new maplibregl.LngLatBounds();
   pts.forEach(f=>b.extend([f.lon, f.lat]));
@@ -706,6 +726,7 @@ async function cardParts(b, ms = 5000){
 // How the location was chosen stays out of the way: a small "Why this location?" button reveals it.
 const whyHTML = note => note ? `<details class="why"><summary>Why this location?</summary><p class="note">${esc(note)}</p></details>` : "";
 async function openBook(f, fly){
+  if(f && f.wantBook){ if(fly) flyTo(f); selected = f; renderPins(); return openPreview(f, null); }
   const token = ++openToken;
   selected = f; preview = null;
   if(MM.inOtherWorld(f) !== worldView && mapView === "map") setWorld(MM.inOtherWorld(f));
@@ -986,7 +1007,7 @@ async function renderCTA(){
     cta.prepend(b);
   }
 }
-function renderAll(){ setOwnerHeader(); renderGenres(); renderPins(); renderList(); renderCTA(); renderCountryList(); warmCards(viewing.films); }
+function renderAll(){ paintShelfTog(); setOwnerHeader(); renderGenres(); renderPins(); renderList(); renderCTA(); renderCountryList(); warmCards(viewing.films); }
 
 function showMap(owner, films, mine){
   viewing = {owner, films, mine};
@@ -1026,6 +1047,50 @@ function showFeatured(){
   $("#whose-k").textContent = "Placing Emily's books…";
   placeFeatured().then(list=>{ if(viewing.owner === FEATURED){ showMap(FEATURED, list, false); } }).catch(()=>{ if(viewing.owner === FEATURED) $("#whose-k").textContent = "Starter shelf"; });
 }
+function paintShelfTog(){
+  const t = $(".shelftog"); if(!t) return;
+  const show = !!(viewing.mine && me && onList("want").length);
+  t.hidden = !show;
+  if(!show && mapShelf === "want"){ mapShelf = "read"; }
+  $("#sc-read").textContent = myBooks.length; $("#sc-want").textContent = onList("want").length;
+  t.querySelectorAll("button").forEach(b=>b.setAttribute("aria-pressed", String(b.dataset.s === mapShelf)));
+  $("#map").classList.toggle("shelf-want", wantMode());
+}
+function noteShelf(text){
+  let n = $("#shelfnote");
+  if(!n){ n = document.createElement("div"); n.id = "shelfnote"; n.className = "shelfnote"; $(".mapwrap").appendChild(n); }
+  n.textContent = text || ""; n.hidden = !text;
+}
+// Want-to-read books carry no place, so they're placed the way a logged book is (saved settings first,
+// shared with everyone), a few at a time, and the map fills in as they arrive.
+async function placeWants(){
+  const todo = onList("want").filter(w=>!wantPlaced.has(w.key));
+  if(!todo.length || placingWants) return;
+  const run = ++placingWants;
+  try{
+    for(let i=0; i<todo.length; i+=6){
+      if(!wantMode()) break;
+      noteShelf(`Placing your Want to read books… ${Math.min(i, todo.length)} of ${todo.length}`);
+      const part = todo.slice(i, i+6);
+      const got = await MM.resolveSettings(part.map(w=>Object.assign({}, w))).catch(()=>[]);
+      part.forEach((w, k)=>{ const st = got && got[k]; wantPlaced.set(w.key, Object.assign({}, w, st || {}, {wantBook:true, id:undefined, t:w.t, a:w.a, y:w.y, ol:w.ol, coverId:w.coverId})); });
+      if(wantMode()){ renderPins(); renderGenres(); }
+    }
+  } finally { placingWants = 0; }
+  if(!wantMode()) return noteShelf("");
+  const unplaced = mapBooks().filter(f=>!Number.isFinite(f.lat) && !MM.inOtherWorld(f)).length;
+  noteShelf(unplaced ? `${unplaced} book${unplaced===1?"":"s"} on Want to read couldn't be placed yet` : "");
+  if(run) fitPins(true);
+}
+function setMapShelf(k){
+  if(k === mapShelf) return;
+  mapShelf = k; selected = null; closeDetail(); genreSel = "";
+  if(railTab === "read" || railTab === "want") railTab = k;   // the rail follows: Read ↔ Want to read
+  paintShelfTog(); renderPins(); renderList(); renderGenres(); if(mapView !== "map") renderCountryList(true);
+  fitPins(true);
+  if(wantMode()) placeWants(); else noteShelf("");
+}
+document.querySelectorAll(".shelftog button").forEach(b=>b.onclick = ()=>{ setView("map"); setMapShelf(b.dataset.s); });
 function showMine(){
   const owner = me ? Object.assign({}, me) : {name:"Your map", username:"", bio:"Saved in this browser"};
   showMap(owner, myBooks, true);
@@ -2151,8 +2216,12 @@ async function isPrivateMap(userId){
 // Is the book table there yet? (supabase/migrations/101_bookmap.sql)
 async function checkBooksTable(){
   if(!sb) return false;
-  const {error} = await sb.from("book_logs").select("id", {head:true, count:"exact"}).limit(1);
-  return !error;
+  for(let i=0; i<3; i++){
+    const {error} = await sb.from("book_logs").select("id", {head:true, count:"exact"}).limit(1).then(r=>r, e=>({error:e}));
+    if(!error) return true;
+    await MM.sleep(800 * (i + 1));
+  }
+  return false;
 }
 async function moveLocalBooks(){
   const local = MM.lsGet(LOCAL, []);
