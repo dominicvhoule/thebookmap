@@ -544,3 +544,10 @@ a{color:var(--pin);text-underline-offset:2px}
 .set-save{position:sticky;bottom:0;display:flex;align-items:center;justify-content:flex-end;gap:12px;flex-wrap:wrap;padding:12px 0;background:var(--card);border-top:1px solid var(--line)}
 .set-save .err{margin:0;flex-basis:100%;text-align:right}
 .set-save .btn[disabled]{opacity:.45;cursor:default}
+
+/* Log a book: Read it | Reading | Want to read, and the rail's "Add a book" row */
+.results.tolist button{grid-template-columns:40px minmax(0,1fr) 28px}
+.results .plus{width:28px;height:28px;display:grid;place-items:center;border:1px solid var(--line);font:600 16px/1 var(--f-mono);color:var(--spine)}
+.results button:hover .plus{border-color:var(--gold)}
+.films .addrow a{display:block;padding:10px 12px;font-family:var(--f-mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--spine);text-decoration:none;border-bottom:1px solid var(--line)}
+.films .addrow a:hover{background:var(--card)}

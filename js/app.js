@@ -195,29 +195,31 @@ const wantBtn = b => { const w = wantOf(b);
   return `<span class="lists" id="d-lists">${Object.entries(LISTS).map(([k, name])=>`<button type="button" class="btn ghost small want${w && w.shelf === k ? " on" : ""}" data-shelf="${k}">${w && w.shelf === k ? "✓ " : "+ "}${name}</button>`).join("")}</span>`; };
 const wantFields = b => ({book_key:MM.bookKey(b), title:String(b.t).slice(0, 400), author:String(b.a || "").slice(0, 300) || null, year:+b.y || null,
   ol_key:/^OL\d+W$/.test(b.ol || "") ? b.ol : null, cover_id:+b.coverId > 0 ? +b.coverId : null, isbn:String(b.isbn13 || b.isbn || "").slice(0, 20) || null});
+// Put a book on a list, move it from the other list, or (toggle) take it off. Returns what happened.
+async function setShelf(b, shelf, toggle){
+  const name = LISTS[shelf], w = wantOf(b);
+  if(w && w.shelf === shelf){
+    if(!toggle) return "already";
+    const {error} = await sb.from("book_wants").delete().eq("id", w.id); if(error) throw error;
+    myWants = myWants.filter(x=>x !== w); toast(`Taken off your ${name} list`); return "removed";
+  }
+  if(w){
+    const {error} = await sb.from("book_wants").update({shelf}).eq("id", w.id); if(error) throw error;
+    w.shelf = shelf; toast(`Moved to ${name}`); return "moved";
+  }
+  const {data, error} = await sb.from("book_wants").insert(Object.assign(wantFields(b), {shelf})).select().single();
+  if(error){ if(error.code === "23505"){ await loadWants(); return setShelf(b, shelf, false); } throw error; }
+  myWants.unshift(wantRow(data)); warmSummaries([b]); toast(`Added to ${name}`); return "added";
+}
 function bindWant(b){
   const box = detail.querySelector("#d-lists"); if(!box) return;
   const redo = () => { box.outerHTML = wantBtn(b); bindWant(b); if(railTab !== "read") renderList(); else paintRailTabs(); };
   box.querySelectorAll("button[data-shelf]").forEach(btn=>btn.onclick = async ()=>{
     if(!(sb && session && me)){ toast("Sign in to keep reading lists"); location.hash = "#/account/in"; return; }
-    const shelf = btn.dataset.shelf, name = LISTS[shelf];
+    const shelf = btn.dataset.shelf;
     box.querySelectorAll("button").forEach(x=>x.disabled = true);
-    try{
-      const w = wantOf(b);
-      if(w && w.shelf === shelf){
-        const {error} = await sb.from("book_wants").delete().eq("id", w.id); if(error) throw error;
-        myWants = myWants.filter(x=>x !== w); toast(`Taken off your ${name} list`);
-      } else if(w){
-        const {error} = await sb.from("book_wants").update({shelf}).eq("id", w.id); if(error) throw error;
-        w.shelf = shelf; toast(`Moved to ${name}`);
-      } else {
-        const {data, error} = await sb.from("book_wants").insert(Object.assign(wantFields(b), {shelf})).select().single();
-        if(!error) warmSummaries([b]);
-        if(error){ if(error.code === "23505"){ await loadWants(); redo(); return; } throw error; }
-        myWants.unshift(wantRow(data)); toast(`Added to ${name}`);
-      }
-      redo();
-    }catch(e){ box.querySelectorAll("button").forEach(x=>x.disabled = false); toast(`Couldn't update your ${name} list. Try again.`); }
+    try{ await setShelf(b, shelf, true); redo(); }
+    catch(e){ box.querySelectorAll("button").forEach(x=>x.disabled = false); toast(`Couldn't update your ${LISTS[shelf]} list. Try again.`); }
   });
 }
 // Goodreads export: books on the to-read and currently-reading shelves go on the matching list here.
@@ -924,8 +926,9 @@ function renderList(){
   listObserver && listObserver.disconnect();
   if(railTab !== "read"){
     const ws = onList(railTab);
-    ul.innerHTML = ws.length ? ws.map((w,i)=>`<li><button data-i="${i}" style="--c:${cloth(w)}"><span class="bar"></span><span class="th" data-i="${i}"></span><span style="min-width:0"><b>${esc(w.t)}</b><span class="meta"><i>${esc(String(w.a).split(" & ")[0])}</i></span></span><span class="r"><em>${esc(w.y)}</em></span></button></li>`).join("")
-      : `<li class="empty">Nothing here yet. Open any book that isn't on your map and press <b>${LISTS[railTab]}</b>, or import your Goodreads or StoryGraph export.</li>`;
+    const add = `<li class="addrow"><a href="#/log/${railTab}">+ Add a book to ${LISTS[railTab]}</a></li>`;
+    ul.innerHTML = add + (ws.length ? ws.map((w,i)=>`<li><button data-i="${i}" style="--c:${cloth(w)}"><span class="bar"></span><span class="th" data-i="${i}"></span><span style="min-width:0"><b>${esc(w.t)}</b><span class="meta"><i>${esc(String(w.a).split(" & ")[0])}</i></span></span><span class="r"><em>${esc(w.y)}</em></span></button></li>`).join("")
+      : `<li class="empty">Nothing here yet. Search for a book above, press <b>${LISTS[railTab]}</b> on any book's card, or import your Goodreads or StoryGraph export.</li>`);
     ul.querySelectorAll("button[data-i]").forEach(b=>b.onclick = ()=>openPreview(ws[+b.dataset.i], null));
     if(ws.length) listObserver = lazyCovers(ul, el=>ws[+el.dataset.i], "S");
     return;
@@ -1299,17 +1302,32 @@ function needAccount(el, title, what){
     <p class="hint" style="margin:0;font-size:15px;color:var(--ink)">Create a free account to ${what}. Your map is saved to your account, so it's there on any device and friends can follow it.</p>
     <div class="cta"><a class="btn" href="#/account/up">Create an account</a><a class="btn ghost" href="#/account/in">Sign in</a></div>`;
 }
+// What a pick on the Log page does: pin it as read (the usual), or put it on Currently reading / Want to read.
+let logMode = "read";
+const LOG_HINT = {read:"Start typing and pick the right book. We'll work out where it takes place.",
+  reading:"Start typing and tap a book to add it to Currently reading. Add as many as you like.",
+  want:"Start typing and tap a book to add it to Want to read. Add as many as you like."};
 function renderLog(){
   const el = $("#log");
   if(signedOut()) return needAccount(el, "Log a book", "start logging books");
   showMine_keepView();
+  const lists = !!(sb && session && me);
+  if(!lists) logMode = "read";
+  const seg = (k, label) => `<button type="button" data-mode="${k}" aria-pressed="${logMode === k}">${label}</button>`;
   el.innerHTML = `<h2 class="h">Log a book</h2>
+    ${lists ? `<div class="seg isrc logmode" role="group" aria-label="Add the book to">${seg("read", "Read it")}${seg("reading", "Reading")}${seg("want", "Want to read")}</div>` : ""}
     <div class="search"><label for="lq" class="sr">Book title or author</label><input id="lq" type="search" autocomplete="off" placeholder="Search a title or author, e.g. Pedro Páramo"></div>
-    <p class="hint" id="ls">Start typing and pick the right book. We'll work out where it takes place.</p>
+    <p class="hint" id="ls">${LOG_HINT[logMode]}</p>
     <ul class="results" id="lr"></ul>
     <div id="lc" hidden></div>
     ${!cloud() ? `<p class="notice">${me ? "Books save in this browser for now." : sb ? 'You\'re not signed in, so books save in this browser only. <a href="#/account">Sign in</a> to keep them on your account.' : "Books save in this browser."}</p>` : ""}`;
   const q = $("#lq");
+  el.querySelectorAll(".logmode button").forEach(b=>b.onclick = ()=>{
+    logMode = b.dataset.mode; draft = null; preview = null; renderPins();
+    const text = q.value;
+    history.replaceState(null, "", logMode === "read" ? "#/log" : "#/log/" + logMode);
+    renderLog(); $("#lq").value = text; if(text.trim().length >= 2) runSearch(text.trim());
+  });
   q.addEventListener("input", ()=>{ clearTimeout(searchT); searchT = setTimeout(()=>runSearch(q.value.trim()), 350); });
   q.focus({preventScroll:true});
   if(pendingLog){ const p = pendingLog; pendingLog = null; q.value = p.t; chooseBook(p); }
@@ -1318,16 +1336,32 @@ async function runSearch(text){
   const seq = ++searchSeq, st = $("#ls"), ul = $("#lr");
   if(!st) return;
   $("#lc").hidden = true;
-  if(text.length < 2){ ul.innerHTML = ""; st.textContent = "Start typing and pick the right book."; st.classList.remove("busy"); return; }
+  if(text.length < 2){ ul.innerHTML = ""; st.textContent = LOG_HINT[logMode]; st.classList.remove("busy"); return; }
   st.textContent = "Searching…"; st.classList.add("busy");
   try{
     const res = await MM.searchBooks(text);
     if(seq !== searchSeq) return;
     st.classList.remove("busy");
     if(!res.length){ ul.innerHTML = ""; st.textContent = `No books found for "${text}". Check the spelling, or add the author.`; return; }
-    st.textContent = "Pick the one you read.";
-    ul.innerHTML = res.map((m,i)=>`<li><button data-i="${i}"><span class="th" style="--c:${cloth(m)};${m.coverId ? `background-image:url('${MM.coverURL(m,"S")}')` : ""}"></span><span style="min-width:0"><b>${esc(m.t)} <span class="m">${esc(m.y)}</span></b><span class="m">${esc(m.a)}</span>${onMyMap(m) ? '<br><span class="have">On your map</span>' : ""}</span></button></li>`).join("");
-    ul.querySelectorAll("button").forEach(b=>b.onclick = ()=>chooseBook(res[+b.dataset.i]));
+    const listMode = logMode !== "read";
+    st.textContent = listMode ? `Tap a book to add it to ${LISTS[logMode]}.` : "Pick the one you read.";
+    const badge = m => { if(onMyMap(m)) return '<br><span class="have">On your map</span>'; const w = wantOf(m); return w ? `<br><span class="have">On ${LISTS[w.shelf]}</span>` : ""; };
+    const row = (m,i) => `<button data-i="${i}"><span class="th" style="--c:${cloth(m)};${m.coverId ? `background-image:url('${MM.coverURL(m,"S")}')` : ""}"></span><span style="min-width:0"><b>${esc(m.t)} <span class="m">${esc(m.y)}</span></b><span class="m">${esc(m.a)}</span>${badge(m)}</span>${listMode ? `<span class="plus" aria-hidden="true">${wantOf(m) && wantOf(m).shelf === logMode ? "✓" : "+"}</span>` : ""}</button>`;
+    ul.classList.toggle("tolist", listMode);
+    ul.innerHTML = res.map((m,i)=>`<li>${row(m,i)}</li>`).join("");
+    ul.querySelectorAll("button").forEach(b=>b.onclick = async ()=>{
+      const m = res[+b.dataset.i];
+      if(!listMode) return chooseBook(m);
+      if(onMyMap(m)){ toast("That one's already on your map as read"); return; }
+      b.disabled = true;
+      try{
+        const r = await setShelf(m, logMode, false);
+        if(r === "already") toast(`Already on your ${LISTS[logMode]} list`);
+        b.outerHTML = row(m, +b.dataset.i);
+        ul.querySelector(`button[data-i="${b.dataset.i}"]`).onclick = ()=>toast(`Already on your ${LISTS[logMode]} list`);
+        if(viewing.mine) paintRailTabs();
+      }catch(e){ b.disabled = false; toast(`Couldn't add it to ${LISTS[logMode]}. Try again.`); }
+    });
   }catch(e){
     if(seq !== searchSeq) return;
     st.classList.remove("busy");
@@ -2053,7 +2087,7 @@ async function route(){
     return;
   }
   if(a === "explore"){ setNav("explore"); showBackdrop(); showPanel("explore"); return renderExplore(); }
-  if(a === "log"){ setNav("log"); showBackdrop(); showPanel("log"); return renderLog(); }
+  if(a === "log"){ logMode = LISTS[b] ? b : "read"; setNav("log"); showBackdrop(); showPanel("log"); return renderLog(); }
   if(a === "import"){ setNav("import"); showBackdrop(); showPanel("import"); return renderImport(); }
   if(a === "poster"){ location.replace("#/"); return; }   // posters were dropped (2026-10-27); old links go home
   if(a === "account"){ if(b === "up" || b === "in") acctTab = b; setNav("account"); showBackdrop(); showPanel("account"); return renderAccount(); }
